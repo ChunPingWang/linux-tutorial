@@ -4,9 +4,15 @@
 
 兩者 LVM 版本差異（實測）：🟠 Ubuntu 24.04 **lvm2 2.03.16（2022）**、🔵 Fedora 44 **lvm2 2.03.38（2025）**。Fedora 預設啟用 **devices file**（`/etc/lvm/devices/system.devices`），Ubuntu 24.04 未啟用且不含 `lvmdevices` 指令，這是本章最大的行為差異（§8）。
 
+**本章解決什麼問題**：06 章的 LVM 操作足以應付日常擴充；但遇到「thin pool 半夜滿了、所有 VM 一起 I/O error」「換了 RAID 卡後開機找不到根 VG」「不小心 `lvremove` 掉正式資料庫的 LV」「硬碟搬到新機、Fedora 卻看不到 VG」這類情境時，需要的是理解 LVM 的內部結構、metadata 與 devices file 機制。本章的取捨原則：優先用 LVM 內建功能（RAID LV、thin、cache）減少疊層，但每項功能都先講清楚它的失效模式——進階功能的代價通常是「壞起來更難修」。
+
 ---
 
 ## 1. 內部結構
+
+**為什麼**：修復 LVM 問題時，`lvs` 的錯誤訊息（partial、refresh needed、not enough free extents）都要對照「哪個 LE 落在哪個 PV 的哪些 PE」才解讀得出來；而 device-mapper 才是真正在核心執行 I/O 的層，LVM 指令卡住或 `lvremove` 報 busy 時，`dmsetup` 能直接看到核心那一側的狀態。
+
+**怎麼做**：先記住三層與 device-mapper 的對應關係，再用下列指令看每一層的實際佈局。
 
 ```
 PV（Physical Volume）  = 一顆磁碟 / 分割區 / RAID / LUKS 裝置，前端有 LVM label + metadata 區
@@ -27,7 +33,7 @@ sudo lvm fullreport vg0 | head -40                                  # 一次全�
 sudo lvmconfig --type full | less                                   # 目前生效的完整設定（含預設）
 ```
 
-`lvs` 的 `Attr` 欄位（實測範例 `twi-aotz--`、`Vwi-a-tz--`、`rwi-a-r---`）：
+**注意**：`lvs` 的 `Attr` 欄位用十個字元濃縮了卷的類型與健康狀態，第 5 位不是 `a`、或第 9 位出現 `p` / `r`，就代表需要處理；§11 的災難表大多從這裡判讀。實測範例 `twi-aotz--`、`Vwi-a-tz--`、`rwi-a-r---`：
 
 | 位置 | 意義 | 常見值 |
 |---|---|---|
@@ -44,6 +50,10 @@ sudo lvmconfig --type full | less                                   # 目前生�
 
 ### 1.1 PE 大小與對齊
 
+**為什麼**：PE 大小建立後不能改，數十 TB 的 VG 用預設 4 MiB 會有數百萬個 extent，metadata 膨脹、每次 `lvs` 與變更都變慢。對齊則決定 LV 起點是否落在磁碟實體區塊或 RAID 條帶的邊界，錯位時每次寫入都會變成跨兩個條帶的兩次寫入。
+
+**怎麼做**：
+
 ```bash
 sudo vgcreate -s 8M vg0 /dev/sdb1               # PE 大小（預設 4M；大型 VG 用 16M~64M 減少 metadata，實測 -s 8M）
 # PE 大小不影響效能，只影響 LV 最小粒度與 metadata 大小；建立後不可改（vgchange -s 只能在 PE 數量整除時）
@@ -56,7 +66,13 @@ sudo pvcreate --metadatasize 16M --metadatacopies 2 /dev/sdb   # metadata 區大
 
 ## 2. 條帶化（Striped）與 RAID LV
 
+**為什麼**：單一 PV 的頻寬有限。striped 把 I/O 平均分散到多顆碟以提升吞吐（但任一顆壞就全毀）；RAID LV 則在 LVM 內提供冗餘，不必再疊 mdadm 一層，還能對每個 LV 個別選等級——同一個 VG 內資料庫 LV 用 raid10、暫存 LV 用線性。
+
 ### 2.1 Striped（RAID0，只求效能）
+
+**為什麼**：適合純暫存、可重建的資料（build cache、影片轉檔暫存）。最常踩的坑在擴充：striped LV 擴充時必須在「相同數量的 PV」上都有空間，VG 總量夠也會報 `not enough free extents`。
+
+**怎麼做**：
 
 ```bash
 sudo lvcreate -L 200G -i 2 -I 64 -n lv_stripe vg0            # -i 條帶數（PV 數）、-I 條帶大小 KiB（實測 -i 2 -I 64 → stripes=2, stripe_size=64k）
@@ -65,6 +81,10 @@ sudo lvextend -L +100G vg0/lv_stripe                          # 擴充時需在�
 ```
 
 ### 2.2 RAID LV（LVM 內建 md-raid，取代 mdadm + LVM 雙層）
+
+**為什麼**：資料 LV 需要冗餘、但不想整顆碟做 mdadm 時用它。線上就能把線性 LV 轉成鏡像、鏡像升到三副本、raid5 升 raid6，這是 mdadm 難以做到的彈性。SSD + HDD 混合鏡像時把 HDD 標成 `writemostly`，讀取全走 SSD，HDD 只當備援。
+
+**怎麼做**：
 
 ```bash
 sudo lvcreate --type raid1 -m 1 -L 200G -n lv_mirror vg0            # 鏡像（實測 raid1，Cpy%Sync 從 0 → 100）
@@ -85,6 +105,8 @@ sudo lvchange --writemostly /dev/sdc vg0/lv_mirror                   # 慢碟只
 # 需要核心模組 dm-raid（實測 WSL2 需手動 modprobe；一般發行版核心已內建）
 ```
 
+**注意**：兩者並非互斥。根目錄與整顆碟層級用 mdadm（安裝程式與救援工具支援最成熟）、資料 LV 需要細粒度時用 LVM RAID，取捨如下：
+
 | | mdadm + LVM | LVM RAID |
 |---|---|---|
 | 適合 | 整顆磁碟層級 RAID、根目錄、與非 LVM 混用 | 每個 LV 自選 RAID 等級、細粒度 |
@@ -96,7 +118,9 @@ sudo lvchange --writemostly /dev/sdc vg0/lv_mirror                   # 慢碟只
 
 ## 3. Thin Provisioning（已實測）
 
-Thin pool 讓 LV 可以「超額配置」並支援**輕量、可無限層疊的快照**（不像傳統 COW 快照會拖慢原卷）。
+**為什麼**：傳統 COW 快照每寫一次原卷就要複製一次舊資料，快照多了原卷慢好幾倍；thin 快照只記錄 metadata 指標，可以層疊上百個而不拖慢原卷，也讓 LV 可以「超額配置」、先開卷後買碟。但 thin pool 滿了會讓所有 thin volume 同時 I/O error，且 metadata 滿比 data 滿更難修，所以監控與自動擴充不是選配。
+
+**怎麼做**：
 
 ```bash
 # 建立 pool（資料 + metadata；metadata 建議 ≥ 1 GB 給大型 pool）
@@ -134,7 +158,9 @@ sudo lvremove vg0/thin1_snap vg0/thin1 vg0/tpool
 
 ## 4. 快取（dm-cache / dm-writecache）
 
-用 SSD 加速 HDD LV。兩種模式：
+**為什麼**：預算只夠一顆小 SSD、卻有一大堆 HDD 上的熱資料時，dm-cache 能讓常讀的區塊自動留在 SSD。`writeback` 模式把寫入先落在 SSD 再回寫 HDD，SSD 壞掉或斷電就丟資料，所以預設是安全的 `writethrough`；`writecache` 則專門吸收資料庫 WAL、日誌這類寫入尖峰。
+
+**怎麼做**：先依負載選模式，再把 SSD 加入同一個 VG 建成 cache LV。
 
 | | `--type cache` | `--type writecache` |
 |---|---|---|
@@ -164,6 +190,10 @@ sudo lvconvert --splitcache vg0/lv_slow                             # 移除前�
 
 ## 5. 搬移與重組：pvmove、vgsplit、vgexport（已實測）
 
+**為什麼**：硬碟退役、搬到新機、或兩個 VG 要合併時，`pvmove` 能在服務不停的狀態下搬資料（它其實是暫時建一個 mirror、同步完再拆掉，中斷後可續跑）。`vgexport` 把 VG 標記為「已交出」，避免舊機與新機同時啟用同一組碟、metadata 互相覆寫；接了克隆碟造成 UUID 重複時要用 `vgimportclone`，手動改名救不了 UUID 衝突。
+
+**怎麼做**：
+
 ```bash
 # 線上把資料搬離某顆 PV（換碟、退役）
 sudo pvmove /dev/sdb1                          # 全部搬到 VG 內其他空閒 PV（實測 pvmove 後 loop0 Used=0）
@@ -190,11 +220,15 @@ sudo vgrename <uuid> vg_old                     # 用 UUID 指定
 sudo vgimportclone -n vg_clone /dev/sde1        # 產生新 UUID 再匯入
 ```
 
+**注意**：`vgreduce --removemissing --force` 會把落在遺失 PV 上的 LV 一併刪掉；壞碟前先用 `lvchange -ay --activationmode partial` 把還讀得到的資料撈出來。🔵 Fedora 搬碟到新機後還要 `vgimportdevices -a`（§8），否則 `vgimport` 根本看不到 PV。
+
 ---
 
 ## 6. Metadata 備份與還原（已實測）
 
-LVM 每次變更都自動備份 metadata：`/etc/lvm/backup/<vg>`（最新）與 `/etc/lvm/archive/<vg>_NNNNN-*.vg`（歷史，實測命名如 `vgadv_00001-190095625.vg`）。這是誤刪 LV 後最重要的救命資料。
+**為什麼**：`lvremove` 只刪掉 metadata 裡的 LV 定義，PE 上的資料還在——所以誤刪後只要 metadata 能還原、區塊尚未被覆寫，資料就救得回來；這也是為什麼誤刪後第一件事是「停止寫入」而不是重開機。LVM 每次變更前都自動備份 metadata：`/etc/lvm/backup/<vg>`（最新）與 `/etc/lvm/archive/<vg>_NNNNN-*.vg`（歷史，實測命名如 `vgadv_00001-190095625.vg`），這是誤刪 LV 後最重要的救命資料。
+
+**怎麼做**：
 
 ```bash
 sudo vgcfgbackup -f /root/vg0-$(date +%F).cfg vg0     # 手動備份（丟進 restic，見 11 章）
@@ -218,6 +252,10 @@ sudo lvmdump -a -m                                      # 打包所有 LVM 診�
 
 ## 7. 啟用、鎖定與 initramfs
 
+**為什麼**：外接碟、SAN 共用碟或備份克隆碟若在開機時被自動啟用，可能被兩台機器同時掛載、或搶走裝置名；`setautoactivation n` 與 activation skip 就是為了控制這件事。根卷 VG 改名或搬 VG 後，initramfs 裡仍記著舊名，是「開機卡在 Volume group not found」最常見的原因。
+
+**怎麼做**：
+
 ```bash
 sudo vgchange -ay vg0; sudo vgchange -an vg0           # 啟用 / 停用整個 VG
 sudo lvchange -ay vg0/lv_data; sudo lvchange -an vg0/lv_data
@@ -232,11 +270,15 @@ sudo lvchange --addtag backup vg0/lv_data; sudo lvs @backup   # 標籤，可在 
 # 叢集共用儲存（多台同時看到同一 VG）：需 lvmlockd（sanlock / dlm）— sudo vgcreate --shared；否則只能一台啟用（vgchange -ay 前確認）
 ```
 
+**注意**：沒有 lvmlockd 的情況下，兩台主機同時 `vgchange -ay` 同一個共用 VG 不會報錯，但 metadata 會互相覆寫；SAN 環境務必在其中一台設 `--setautoactivation n`。
+
 ---
 
 ## 8. Devices file 與過濾（🟠🔵 行為差異）
 
-LVM 2.03.12+ 引入 **devices file**：只掃描列在 `/etc/lvm/devices/system.devices` 的裝置，取代舊的 `filter` regex。避免掃到 VM 映像檔內部 / 多路徑子裝置 / 備份克隆碟造成 UUID 重複。
+**為什麼**：LVM 傳統上掃描所有區塊裝置找 PV：KVM 主機會掃到 VM 映像檔內部的 PV、多路徑環境會同時看到 mpath 裝置與底下的子路徑、備份克隆碟會造成 UUID 重複——這些都可能讓 LVM 啟用錯的裝置。LVM 2.03.12+ 引入 **devices file**，改成只掃描列在 `/etc/lvm/devices/system.devices` 的裝置，取代舊的 `filter` regex。兩者的差異純粹來自版本：Ubuntu 24.04 的 lvm2 2.03.16 仍以 filter 為主，Fedora 44 的 2.03.38 已預設 devices file，所以同樣的「搬硬碟到新機」在 Fedora 上會看不到 VG。
+
+**怎麼做**：先確認自己在哪一種模式，再依下表操作。
 
 | | 🟠 Ubuntu 24.04（lvm2 2.03.16） | 🔵 Fedora 44（lvm2 2.03.38） |
 |---|---|---|
@@ -263,11 +305,15 @@ sudo lvmdevices --check; sudo lvmdevices --update  # 磁碟 ID 變動（換控�
 sudo pvscan --cache; sudo pvs -vvv 2>&1 | grep -i "filter" | head    # 除錯過濾
 ```
 
-`/etc/lvm/lvmlocal.conf`：本機覆寫（套件升級不覆蓋），本手冊實驗環境即用它關閉 udev 同步。
+**注意**：devices file 以磁碟 ID（WWID / 序號）辨識裝置，換 HBA 或控制器後 ID 變了，根 VG 會在開機時被排除——這種情況要進救援模式跑 `lvmdevices --update` 再重建 initramfs。`/etc/lvm/lvmlocal.conf`：本機覆寫（套件升級不覆蓋），本手冊實驗環境即用它關閉 udev 同步。
 
 ---
 
 ## 9. 監控、效能與 dmeventd
+
+**為什麼**：thin pool 自動擴充、RAID LV 壞碟自動修復、快照滿了自動延伸，都靠 dmeventd 監聽 device-mapper 事件——它沒在跑，`lvm.conf` 裡的 autoextend 設定就只是擺設。效能問題則多半來自對齊錯誤、傳統快照過多，或數百個 LV 讓 metadata 操作變慢。
+
+**怎麼做**：
 
 ```bash
 # dmeventd：監控 thin pool / raid / mirror / snapshot 事件並觸發自動擴充或修復（兩者由 lvm2 套件提供，隨需啟動）
@@ -287,6 +333,10 @@ iostat -xz 1 /dev/dm-0                                                          
 
 ## 10. VDO（重複資料刪除 + 壓縮，🔵 Fedora / RHEL 原生）
 
+**為什麼**：VM 映像、備份倉庫這類重複度高的資料，重複資料刪除加壓縮能省下數倍空間。VDO 是 Red Hat 收購後開源的技術，已整合進 lvm2 並隨 Fedora 核心內建；Ubuntu 沒有打包，同樣需求走 ZFS 或 Btrfs。
+
+**怎麼做**：
+
 ```bash
 # 🔵 lvm2 整合 VDO（需 kmod-kvdo，Fedora 44 核心內建 dm-vdo）
 sudo dnf install -y vdo
@@ -296,9 +346,15 @@ sudo lvchange --compression n vg0/vpool
 # 🟠 Ubuntu：無官方 VDO 套件；替代方案 ZFS（dedup / compression）或 Btrfs compress
 ```
 
+**注意**：VDO 本質上也是超額配置，實體空間用完的後果與 thin pool 相同，`vdo_used_size` 要一併納入監控。
+
 ---
 
 ## 11. 常見災難與修復流程
+
+**為什麼**：LVM 的錯誤訊息通常不直接說原因——`not enough free extents` 其實是 striped 需要每個 PV 都有空間、`Device or resource busy` 常是 LUKS 或 md 疊在上面。下表把實際遇過的症狀對應到根因與處理順序；救援時先查表再動手，避免在慌亂中執行 `--force`。
+
+**怎麼做**：
 
 | 情境 | 處理 |
 |---|---|
@@ -317,6 +373,8 @@ sudo lvchange --compression n vg0/vpool
 ---
 
 ## 12. 本章差異總結
+
+本章差異的根源有二：lvm2 版本落差（2.03.16 vs 2.03.38，相隔三年，devices file 與 VDO 整合都是這段期間成熟的功能），以及 Red Hat 主導 lvm2 / VDO 開發——Fedora 最先拿到新功能，Ubuntu LTS 則凍結在較舊版本以求穩定，套件名稱亦承襲 Debian 命名。
 
 | 項目 | 🟠 Ubuntu 24.04 | 🔵 Fedora 44 |
 |---|---|---|
