@@ -44,6 +44,7 @@ sudo dnf install nginx
 | [13 - 自動化與其他管理議題](13-自動化與其他管理議題.md) | Ansible、cloud-init、容器、虛擬化、系統升級、Cockpit |
 | [14 - UEFI 進階](14-UEFI進階.md) | ESP / NVRAM 開機項、Secure Boot 信任鏈與 MOK、shim / GRUB / systemd-boot、BLS、UKI、TPM 量測開機、fwupd、UEFI 故障排除 |
 | [15 - LVM 進階](15-LVM進階.md) | 內部結構、RAID LV、Thin Provisioning、快取、pvmove / vgsplit / vgexport、metadata 還原、devices file、災難修復 |
+| [附錄 A - 常用指令與語法說明](A-常用指令與語法說明.md) | `tee` 與 `sudo tee`、heredoc（`<<'EOF'`）、重新導向、`$( )`、`\|\| true`、`install`、`sed` 等手冊常用寫法 |
 
 所有腳本集中在 [`scripts/`](scripts/) 目錄，皆已於 Ubuntu 24.04 與 Fedora 44 實測；完整測試矩陣與實測修正見 [VERIFICATION.md](VERIFICATION.md)。
 
