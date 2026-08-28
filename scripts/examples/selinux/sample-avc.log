@@ -1,0 +1,2 @@
+type=AVC msg=audit(1724900000.123:456): avc:  denied  { name_connect } for  pid=1234 comm="nginx" dest=8080 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:http_cache_port_t:s0 tclass=tcp_socket permissive=0
+type=AVC msg=audit(1724900001.123:457): avc:  denied  { read } for  pid=1234 comm="nginx" name="app.conf" dev="dm-0" ino=1234 scontext=system_u:object_r:httpd_t:s0 tcontext=unconfined_u:object_r:user_home_t:s0 tclass=file permissive=0

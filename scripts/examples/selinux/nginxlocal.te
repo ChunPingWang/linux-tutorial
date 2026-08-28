@@ -1,0 +1,19 @@
+
+module nginxlocal 1.0;
+
+require {
+	type user_home_t;
+	type http_cache_port_t;
+	type httpd_t;
+	class tcp_socket name_connect;
+	class file read;
+}
+
+#============= httpd_t ==============
+
+#!!!! This avc can be allowed using one of the these booleans:
+#     httpd_can_network_connect, httpd_can_network_relay
+allow httpd_t http_cache_port_t:tcp_socket name_connect;
+
+#!!!! This avc can be allowed using the boolean 'httpd_read_user_content'
+allow httpd_t user_home_t:file read;

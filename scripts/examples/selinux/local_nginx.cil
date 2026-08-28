@@ -1,0 +1,1 @@
+(allow httpd_t http_cache_port_t (tcp_socket (name_connect)))

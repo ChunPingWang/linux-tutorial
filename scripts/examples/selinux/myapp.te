@@ -1,0 +1,41 @@
+policy_module(myapp, 1.0.0)
+
+########################################
+#
+# Declarations
+#
+
+type myapp_t;
+type myapp_exec_t;
+init_daemon_domain(myapp_t, myapp_exec_t)
+
+permissive myapp_t;
+
+type myapp_log_t;
+logging_log_file(myapp_log_t)
+
+type myapp_var_lib_t;
+files_type(myapp_var_lib_t)
+
+########################################
+#
+# myapp local policy
+#
+allow myapp_t self:fifo_file rw_fifo_file_perms;
+allow myapp_t self:unix_stream_socket create_stream_socket_perms;
+
+manage_dirs_pattern(myapp_t, myapp_log_t, myapp_log_t)
+manage_files_pattern(myapp_t, myapp_log_t, myapp_log_t)
+manage_lnk_files_pattern(myapp_t, myapp_log_t, myapp_log_t)
+logging_log_filetrans(myapp_t, myapp_log_t, { dir file lnk_file })
+
+manage_dirs_pattern(myapp_t, myapp_var_lib_t, myapp_var_lib_t)
+manage_files_pattern(myapp_t, myapp_var_lib_t, myapp_var_lib_t)
+manage_lnk_files_pattern(myapp_t, myapp_var_lib_t, myapp_var_lib_t)
+files_var_lib_filetrans(myapp_t, myapp_var_lib_t, { dir file lnk_file })
+
+domain_use_interactive_fds(myapp_t)
+
+files_read_etc_files(myapp_t)
+
+miscfiles_read_localization(myapp_t)
