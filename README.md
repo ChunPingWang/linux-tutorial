@@ -42,6 +42,8 @@ sudo dnf install nginx
 | [11 - 備份與災難復原](11-備份與災難復原.md) | 3-2-1 原則、rsync / restic / borg、LVM & Btrfs 快照、系統映像、DR 演練 |
 | [12 - 監控與故障排除](12-監控與故障排除.md) | Prometheus / Grafana、開機失敗、救援模式、磁碟爆滿、核心崩潰分析 |
 | [13 - 自動化與其他管理議題](13-自動化與其他管理議題.md) | Ansible、cloud-init、容器、虛擬化、系統升級、Cockpit |
+| [14 - UEFI 進階](14-UEFI進階.md) | ESP / NVRAM 開機項、Secure Boot 信任鏈與 MOK、shim / GRUB / systemd-boot、BLS、UKI、TPM 量測開機、fwupd、UEFI 故障排除 |
+| [15 - LVM 進階](15-LVM進階.md) | 內部結構、RAID LV、Thin Provisioning、快取、pvmove / vgsplit / vgexport、metadata 還原、devices file、災難修復 |
 
 所有腳本集中在 [`scripts/`](scripts/) 目錄，皆已於 Ubuntu 24.04 與 Fedora 44 實測；完整測試矩陣與實測修正見 [VERIFICATION.md](VERIFICATION.md)。
 
@@ -77,6 +79,8 @@ sudo dnf install nginx
 | 11 | `scripts/backup-restic.sh` 備份 / 保留 / 抽樣檢查 / 還原比對；`restic-backup.timer` | ✅ | ✅ |
 | 12 | `promtool check rules`、node_exporter / kdump / sos / lm_sensors 套件與 unit 名稱 | ✅ | ✅ |
 | 13 | Ansible 跨發行版 playbook `--syntax-check` 與本機 `--check`（failed=0）；Quadlet `-dryrun`；虛擬化套件名 | ✅ | ✅ |
+| 14 | shim / GRUB / systemd-boot / ukify / mokutil / efibootmgr / fwupd 套件、ESP 檔案路徑、BLS entry、`kernel-install` hook、UKI 套件（NVRAM 與 Secure Boot 狀態需實體韌體，未於容器驗證） | ✅ | ✅ |
+| 15 | `scripts/lab/lab-lvm-advanced-test.sh`：striped、thin pool / thin 快照 / pool 擴充、pvmove、vgsplit / vgexport / vgimport / vgmerge、RAID1 LV、metadata 備份還原（含 thin `--force`）、devices file 差異（dm-cache 缺模組未測） | ✅ | ✅ |
 
 ## 閱讀建議
 

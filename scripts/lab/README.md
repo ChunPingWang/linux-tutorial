@@ -16,6 +16,7 @@ docker exec lab-ubuntu systemctl is-system-running   # running
 |---|---|
 | `lab-systemd-test.sh` | 部署 `scripts/examples/myapp.service`、`backup.timer`，確認服務可用、timer 排程、`systemd-analyze security` |
 | `lab-storage-test.sh` | loop 裝置上實測 parted、LVM 建立 / 線上擴充 / 快照合併還原、ext4 縮放、mdadm RAID1、LUKS2、Btrfs 子卷快照、ext4 與 XFS 配額 |
+| `lab-lvm-advanced-test.sh` | striped、thin pool / 快照 / 擴充、pvmove、vgsplit / vgexport / vgmerge、RAID1 LV、metadata 備份還原、devices file（需主機先 `modprobe dm-raid dm-mirror dm-thin-pool`） |
 | `lab-backup-test.sh` | `backup-restic.sh` 備份 → 保留 → 抽樣檢查 → 還原比對，以及 `restic-backup.timer` |
 
 容器與實體機 / VM 的差異（腳本內已處理，實機不需要）：
