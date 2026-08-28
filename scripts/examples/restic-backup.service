@@ -1,0 +1,12 @@
+[Unit]
+Description=Restic backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=RESTIC_REPOSITORY=/backup/restic
+Environment=RESTIC_PASSWORD_FILE=/root/.restic-pw
+ExecStart=/usr/local/bin/backup-restic.sh
+Nice=15
+IOSchedulingClass=idle

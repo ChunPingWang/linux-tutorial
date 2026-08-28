@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup.sh
+Nice=10
+IOSchedulingClass=idle
