@@ -1,0 +1,53 @@
+- hosts: all
+  vars:
+    base_packages_map:
+      Debian: [vim, curl, htop, dnsutils, chrony]
+      RedHat: [vim-enhanced, curl, htop, bind-utils, chrony]
+    firewall_svc:
+      Debian: ufw
+      RedHat: firewalld
+  tasks:
+    - name: 更新套件快取並升級（Debian 系）
+      ansible.builtin.apt: {update_cache: true, upgrade: dist, cache_valid_time: 3600}
+      when: ansible_facts.os_family == "Debian"
+    - name: 升級（RedHat 系）
+      ansible.builtin.dnf: {name: "*", state: latest}
+      when: ansible_facts.os_family == "RedHat"
+    - name: 安裝基本套件（自動選 apt / dnf）
+      ansible.builtin.package:
+        name: "{{ base_packages_map[ansible_facts.os_family] }}"
+        state: present
+    - name: 時區
+      community.general.timezone: {name: Asia/Taipei}
+    - name: 管理員群組（sudo / wheel）
+      ansible.builtin.user:
+        name: deploy
+        groups: "{{ 'sudo' if ansible_facts.os_family == 'Debian' else 'wheel' }}"
+        append: true
+        shell: /bin/bash
+    - name: SSH 強化 drop-in
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-hardening.conf
+        content: |
+          PermitRootLogin no
+          PasswordAuthentication no
+        validate: "sshd -t -f %s"
+      notify: restart sshd
+    - name: 防火牆開 SSH（Ubuntu）
+      community.general.ufw: {rule: allow, name: OpenSSH, state: enabled}
+      when: ansible_facts.os_family == "Debian"
+    - name: 防火牆開 SSH（Fedora）
+      ansible.posix.firewalld: {service: ssh, permanent: true, immediate: true, state: enabled}
+      when: ansible_facts.os_family == "RedHat"
+    - name: SELinux boolean（Fedora）
+      ansible.posix.seboolean: {name: httpd_can_network_connect, state: true, persistent: true}
+      when: ansible_facts.selinux.status == "enabled"
+    - name: 是否需要重開機
+      ansible.builtin.stat: {path: /var/run/reboot-required}
+      register: reboot_required
+      when: ansible_facts.os_family == "Debian"
+  handlers:
+    - name: restart sshd
+      ansible.builtin.service:
+        name: "{{ 'ssh' if ansible_facts.os_family == 'Debian' else 'sshd' }}"
+        state: restarted

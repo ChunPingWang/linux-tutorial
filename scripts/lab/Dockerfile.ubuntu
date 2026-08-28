@@ -1,0 +1,6 @@
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y systemd systemd-sysv dbus sudo curl vim less iproute2 iputils-ping procps && \
+    apt-get clean
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

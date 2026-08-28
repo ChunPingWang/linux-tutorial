@@ -1,0 +1,47 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: Asia/Taipei
+  refresh-installer:
+    update: false
+  apt:
+    primary:
+      - arches: [amd64]
+        uri: http://tw.archive.ubuntu.com/ubuntu
+  network:
+    version: 2
+    ethernets:
+      # 用 match 避免因網卡命名（ens18 / enp0s3）不同而失敗
+      primary:
+        match:
+          name: "en*"
+        dhcp4: true
+  storage:
+    layout:
+      name: lvm
+      sizing-policy: all          # 把整個 VG 分配給 /（預設只用一半）
+      # password: "changeme"      # 加上這行即啟用 LUKS 全碟加密
+  identity:
+    hostname: ubuntu-auto
+    username: admin
+    # 用 `openssl passwd -6` 或 `mkpasswd -m sha-512` 產生
+    password: "$6$rounds=4096$saltsalt$4gZ3hVdJvJZk9pRQx5Ig7KmzuhBRD0xKmFGm5N1Q3wfZ1qKZ8Ri2CQ7O.pTNvB4E9JuYfN3hVbC5pQeXvpRIb/"
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyReplaceMe admin@laptop"
+  packages:
+    - vim
+    - htop
+    - curl
+    - qemu-guest-agent
+  updates: security
+  late-commands:
+    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
+    - echo 'admin ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-admin
+    - chmod 440 /target/etc/sudoers.d/90-admin
+  shutdown: reboot

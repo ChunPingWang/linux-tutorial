@@ -43,7 +43,14 @@ sudo dnf install nginx
 | [12 - 監控與故障排除](12-監控與故障排除.md) | Prometheus / Grafana、開機失敗、救援模式、磁碟爆滿、核心崩潰分析 |
 | [13 - 自動化與其他管理議題](13-自動化與其他管理議題.md) | Ansible、cloud-init、容器、虛擬化、系統升級、Cockpit |
 
-所有腳本集中在 [`scripts/`](scripts/) 目錄，皆已於 Ubuntu 24.04 與 Fedora 44 實測。
+所有腳本集中在 [`scripts/`](scripts/) 目錄，皆已於 Ubuntu 24.04 與 Fedora 44 實測；完整測試矩陣與實測修正見 [VERIFICATION.md](VERIFICATION.md)。
+
+| 路徑 | 內容 |
+|---|---|
+| `scripts/bootstrap.sh` | 雙發行版初始化腳本（02 章） |
+| `scripts/backup-restic.sh` | restic 備份腳本，含 LVM 快照與資料庫傾印（11 章） |
+| `scripts/examples/` | systemd 單元 / timer、HA（keepalived、haproxy）、restic timer、Quadlet、Ansible、Kickstart / autoinstall 範例 |
+| `scripts/lab/` | 建立驗證用 systemd 容器的 Dockerfile 與三支自動化測試腳本 |
 
 ## 閱讀建議
 

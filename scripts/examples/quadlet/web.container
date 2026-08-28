@@ -1,0 +1,17 @@
+[Unit]
+Description=Nginx web
+After=network-online.target
+
+[Container]
+Image=docker.io/library/nginx:1.27
+PublishPort=8080:80
+Volume=/srv/www:/usr/share/nginx/html:Z,ro
+Environment=TZ=Asia/Taipei
+AutoUpdate=registry
+HealthCmd=curl -f http://localhost/ || exit 1
+
+[Service]
+Restart=always
+
+[Install]
+WantedBy=multi-user.target default.target
