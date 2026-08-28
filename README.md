@@ -48,6 +48,7 @@ sudo dnf install nginx
 | [13 - 自動化與其他管理議題](13-自動化與其他管理議題.md) | Ansible、cloud-init、容器、虛擬化、系統升級、Cockpit |
 | [14 - UEFI 進階](14-UEFI進階.md) | ESP / NVRAM 開機項、Secure Boot 信任鏈與 MOK、shim / GRUB / systemd-boot、BLS、UKI、TPM 量測開機、fwupd、UEFI 故障排除 |
 | [15 - LVM 進階](15-LVM進階.md) | 內部結構、RAID LV、Thin Provisioning、快取、pvmove / vgsplit / vgexport、metadata 還原、devices file、災難修復 |
+| [16 - SELinux 進階](16-SELinux進階.md) | 標籤模型、targeted 政策結構、sesearch / seinfo 查詢、AVC 除錯流程、自訂模組（.te / CIL / refpolicy 巨集）、sepolicy generate、容器與 MCS、confined users、標籤進階、運維 |
 | [附錄 A - 常用指令與語法說明](A-常用指令與語法說明.md) | `tee` 與 `sudo tee`、heredoc（`<<'EOF'`）、重新導向、`$( )`、`\|\| true`、`install`、`sed` 等手冊常用寫法 |
 
 所有腳本集中在 [`scripts/`](scripts/) 目錄，皆已於 Ubuntu 24.04 與 Fedora 44 實測；完整測試矩陣與實測修正見 [VERIFICATION.md](VERIFICATION.md)。
@@ -86,6 +87,7 @@ sudo dnf install nginx
 | 13 | Ansible 跨發行版 playbook `--syntax-check` 與本機 `--check`（failed=0）；Quadlet `-dryrun`；虛擬化套件名 | ✅ | ✅ |
 | 14 | shim / GRUB / systemd-boot / ukify / mokutil / efibootmgr / fwupd 套件、ESP 檔案路徑、BLS entry、`kernel-install` hook、UKI 套件（NVRAM 與 Secure Boot 狀態需實體韌體，未於容器驗證） | ✅ | ✅ |
 | 15 | `scripts/lab/lab-lvm-advanced-test.sh`：striped、thin pool / thin 快照 / pool 擴充、pvmove、vgsplit / vgexport / vgimport / vgmerge、RAID1 LV、metadata 備份還原（含 thin `--force`）、devices file 差異（dm-cache 缺模組未測） | ✅ | ✅ |
+| 16 | 政策查詢（`seinfo` / `sesearch` / `sepolicy` / `matchpathcon`）、`semanage` 離線修改、`audit2allow` / `audit2why -p`、`.te` 與 CIL 模組編譯 + `semodule` 安裝、refpolicy 巨集自訂 port type、`sepolicy generate` 骨架（enforcing 行為需真實核心，未於容器驗證） | —（AppArmor） | ✅ |
 
 ## 閱讀建議
 

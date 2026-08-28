@@ -25,8 +25,11 @@
 | 13 | Ansible 跨發行版 playbook `--syntax-check` 與本機 `--check`（failed=0）；Quadlet `-dryrun`；虛擬化套件名 | ✅ | ✅ |
 | 14 | shim / GRUB / systemd-boot / ukify / mokutil / efibootmgr / fwupd 套件、ESP 檔案路徑、BLS entry、`kernel-install` hook、UKI 套件（NVRAM 與 Secure Boot 狀態需實體韌體，未於容器驗證） | ✅ | ✅ |
 | 15 | `scripts/lab/lab-lvm-advanced-test.sh`：striped、thin pool / thin 快照 / pool 擴充、pvmove、vgsplit / vgexport / vgimport / vgmerge、RAID1 LV、metadata 備份還原（含 thin `--force`）、devices file 差異（dm-cache 缺模組未測） | ✅ | ✅ |
+| 16 | 政策查詢（`seinfo` / `sesearch` / `sepolicy` / `matchpathcon`）、`semanage` 離線修改、`audit2allow` / `audit2why -p`、`.te` 與 CIL 模組編譯 + `semodule` 安裝、refpolicy 巨集自訂 port type、`sepolicy generate` 骨架（enforcing 行為需真實核心，未於容器驗證） | —（AppArmor） | ✅ |
 
 ## 驗證過程中修正的錯誤（原稿 → 實測）
+
+- SELinux disabled 環境下 `audit2allow` / `audit2why` 必須加 `-p /etc/selinux/targeted/policy/policy.35`；`sepolicy generate -p DIR` 的目錄要先存在；`sepolicy booleans` 需 SELinux 啟用。
 
 - Ubuntu 24.04 `mokutil` 0.6.0 無 `--set-sbat-policy` / `--list-sbat-revocations`（Fedora 0.7.2 有）。
 - `vgcfgrestore` 需先 `vgchange -an`，且 VG 含 thin pool 時必須 `--force`；Ubuntu 24.04 lvm2 2.03.16 無 `lvmdevices` 指令、devices file 預設關閉。
