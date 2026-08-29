@@ -49,6 +49,7 @@ sudo dnf install nginx
 | [14 - UEFI 進階](14-UEFI進階.md) | ESP / NVRAM 開機項、Secure Boot 信任鏈與 MOK、shim / GRUB / systemd-boot、BLS、UKI、TPM 量測開機、fwupd、UEFI 故障排除 |
 | [15 - LVM 進階](15-LVM進階.md) | 內部結構、RAID LV、Thin Provisioning、快取、pvmove / vgsplit / vgexport、metadata 還原、devices file、災難修復 |
 | [16 - SELinux 進階](16-SELinux進階.md) | 標籤模型、targeted 政策結構、sesearch / seinfo 查詢、AVC 除錯流程、自訂模組（.te / CIL / refpolicy 巨集）、sepolicy generate、容器與 MCS、confined users、標籤進階、運維 |
+| [17 - 故障排查情境演練](17-故障排查情境演練.md) | 20 個從告警 / 回報出發的情境：排查思路與順序、實測輸出、根因、修復、預防；15 個附可注入故障的練習腳本 |
 | [附錄 A - 常用指令與語法說明](A-常用指令與語法說明.md) | `tee` 與 `sudo tee`、heredoc（`<<'EOF'`）、重新導向、`$( )`、`\|\| true`、`install`、`sed` 等手冊常用寫法 |
 | [附錄 B - 名詞總表](B-名詞總表.md) | 全書「名詞與關係」定義的自動彙整索引（名詞 → 一句話定義 → 定義與關係所在章節） |
 
@@ -59,7 +60,7 @@ sudo dnf install nginx
 | `scripts/bootstrap.sh` | 雙發行版初始化腳本（02 章） |
 | `scripts/backup-restic.sh` | restic 備份腳本，含 LVM 快照與資料庫傾印（11 章） |
 | `scripts/examples/` | systemd 單元 / timer、HA（keepalived、haproxy）、restic timer、Quadlet、Ansible、Kickstart / autoinstall 範例 |
-| `scripts/lab/` | 建立驗證用 systemd 容器的 Dockerfile 與三支自動化測試腳本 |
+| `scripts/lab/` | 建立驗證用 systemd 容器的 Dockerfile、四支自動化測試腳本與 `scenarios/` 故障注入腳本 |
 
 ## 驗證矩陣
 
@@ -89,6 +90,7 @@ sudo dnf install nginx
 | 14 | shim / GRUB / systemd-boot / ukify / mokutil / efibootmgr / fwupd 套件、ESP 檔案路徑、BLS entry、`kernel-install` hook、UKI 套件（NVRAM 與 Secure Boot 狀態需實體韌體，未於容器驗證） | ✅ | ✅ |
 | 15 | `scripts/lab/lab-lvm-advanced-test.sh`：striped、thin pool / thin 快照 / pool 擴充、pvmove、vgsplit / vgexport / vgimport / vgmerge、RAID1 LV、metadata 備份還原（含 thin `--force`）、devices file 差異（dm-cache 缺模組未測） | ✅ | ✅ |
 | 16 | 政策查詢（`seinfo` / `sesearch` / `sepolicy` / `matchpathcon`）、`semanage` 離線修改、`audit2allow` / `audit2why -p`、`.te` 與 CIL 模組編譯 + `semodule` 安裝、refpolicy 巨集自訂 port type、`sepolicy generate` 骨架（enforcing 行為需真實核心，未於容器驗證） | —（AppArmor） | ✅ |
+| 17 | `scripts/lab/scenarios/*.sh`：15 個情境 inject → status → solve 全流程（磁碟滿 / 埠衝突 / nginx 語法 / SSH 鎖死 / DNS / 綁定與防火牆 / cron / timer / OOM / 高負載 / 壞 repo / thin pool / sudo / journal 暴增 / fstab） | ✅ | ✅ |
 
 ## 閱讀建議
 

@@ -26,6 +26,7 @@
 | 14 | shim / GRUB / systemd-boot / ukify / mokutil / efibootmgr / fwupd 套件、ESP 檔案路徑、BLS entry、`kernel-install` hook、UKI 套件（NVRAM 與 Secure Boot 狀態需實體韌體，未於容器驗證） | ✅ | ✅ |
 | 15 | `scripts/lab/lab-lvm-advanced-test.sh`：striped、thin pool / thin 快照 / pool 擴充、pvmove、vgsplit / vgexport / vgimport / vgmerge、RAID1 LV、metadata 備份還原（含 thin `--force`）、devices file 差異（dm-cache 缺模組未測） | ✅ | ✅ |
 | 16 | 政策查詢（`seinfo` / `sesearch` / `sepolicy` / `matchpathcon`）、`semanage` 離線修改、`audit2allow` / `audit2why -p`、`.te` 與 CIL 模組編譯 + `semodule` 安裝、refpolicy 巨集自訂 port type、`sepolicy generate` 骨架（enforcing 行為需真實核心，未於容器驗證） | —（AppArmor） | ✅ |
+| 17 | 15 個故障情境腳本 inject → status → solve（實測差異：OOM 時 systemd 255 顯示 `Result=signal`、259 顯示 `Result=oom-kill`；Fedora 容器無 `hostname` 指令；dnf5 需 `skip_if_unavailable=0` 才會因壞 repo 中止） | ✅ | ✅ |
 
 ## 驗證過程中修正的錯誤（原稿 → 實測）
 

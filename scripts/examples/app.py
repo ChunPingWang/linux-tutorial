@@ -7,4 +7,4 @@ class H(http.server.BaseHTTPRequestHandler):
         self.send_response(200); self.end_headers(); self.wfile.write(b"ok\n")
     def log_message(self, *a): pass
 print(f"listening on {port}", flush=True)
-http.server.HTTPServer(("127.0.0.1", port), H).serve_forever()
+http.server.HTTPServer((os.environ.get("BIND", "127.0.0.1"), port), H).serve_forever()
