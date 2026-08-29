@@ -33,6 +33,7 @@ sudo dnf install nginx
 | 章節 | 內容 |
 |---|---|
 | [00 - 差異速查表](00-差異速查表.md) | 一頁看完 Ubuntu 與 Fedora 的所有關鍵差異 |
+| [00b - 設計階段的需求考量](00b-設計階段的需求考量.md) | 十個需求問題、需求 → 決策推導表（Tier / RPO / 生命週期 / 合規 / 工作負載 / 部署位置）、容量規劃與隱性用量、環境與網路規劃、維運模型、設計決策紀錄範本與上線前檢查清單 |
 | [01 - 系統安裝](01-系統安裝.md) | 安裝媒體、分割區、LVM/加密、無人值守安裝（autoinstall / Kickstart）、雲端映像、WSL2 |
 | [02 - 初始設定](02-初始設定.md) | 主機名、時區、使用者與 sudo、SSH、MAC 基礎、通用初始化腳本 |
 | [03 - 套件與軟體安裝](03-套件與軟體安裝.md) | apt / dnf、PPA / COPR、Snap / Flatpak、第三方套件庫、原始碼編譯、語言套件管理 |
@@ -59,7 +60,7 @@ sudo dnf install nginx
 |---|---|
 | `scripts/bootstrap.sh` | 雙發行版初始化腳本（02 章） |
 | `scripts/backup-restic.sh` | restic 備份腳本，含 LVM 快照與資料庫傾印（11 章） |
-| `scripts/examples/` | systemd 單元 / timer、HA（keepalived、haproxy）、restic timer、Quadlet、Ansible、Kickstart / autoinstall 範例 |
+| `scripts/examples/` | 設計決策紀錄範本、systemd 單元 / timer、HA（keepalived、haproxy）、restic timer、Quadlet、Ansible、Kickstart / autoinstall、SELinux 政策範例 |
 | `scripts/lab/` | 建立驗證用 systemd 容器的 Dockerfile、四支自動化測試腳本與 `scenarios/` 故障注入腳本 |
 
 ## 驗證矩陣
@@ -95,6 +96,7 @@ sudo dnf install nginx
 ## 閱讀建議
 
 - **初學者**：依序閱讀 01 → 02 → 03 → 04 → 05 → 06 → 07。
+- **要規劃一台新主機**：先讀 [00b 設計階段的需求考量](00b-設計階段的需求考量.md)，填好 `scripts/examples/design-record.md`，再依決策表跳到對應章節。
 - **有 Ubuntu 經驗要接手 Fedora（或反之）**：先讀 [00 差異速查表](00-差異速查表.md)，再視需要查閱各章。
 - **要上線的正式主機**：08、09、10、11 為必讀。
 
