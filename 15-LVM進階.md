@@ -10,6 +10,20 @@
 
 ## 1. 內部結構
 
+**名詞與關係**：06 章把 LVM 講成 PV → VG → LV 三層；本章要往下看一層——這三個物件「在磁碟上長什麼樣」（label、metadata、PE / LE 對應表），以及它們怎麼被載入核心的 device-mapper 變成真正的裝置：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **PV / VG / LV** | LVM 的三個物件：原料裝置 / 儲存池 / 從池切出的邏輯卷（06 章 §3） | 本章關心的是它們在磁碟上的實際結構與失效方式 |
+| **PE（Physical Extent）** | VG 把每個 PV 切成的固定大小塊（預設 4 MiB），配置的最小單位 | `vgs` 的 free extents 指它；striped / raid 的「每個 PV 都要有空間」也是以 PE 計算 |
+| **LE（Logical Extent）** | LV 內部的邏輯塊，一對一對應到某個 PV 的某個 PE | LV 本質上就是一張 LE → PE 對應表；`lvdisplay -m` 印的就是這張表 |
+| **segment / segtype** | LV 內一段連續 LE 的對應方式（linear、striped、raid1、thin…） | 一個 LV 可由多段組成（例如線性一段 + 後來擴充的另一段）；`lvs -o segtype` 看每段的型別 |
+| **metadata** | 存在每個 PV 開頭的文字描述：VG 內有哪些 PV、每個 LV 的每一段對應哪些 PE | 所有 LVM 指令改的都是它；`vg_seqno` 每改一次加一，§6 的備份還原也是還原它 |
+| **label** | PV 最前面幾個磁區的標籤，記 PV UUID 與 metadata 區的位置 | `pvs` 靠掃描 label 找 PV；label 壞了 PV 就「不見」（§6 有重建方法） |
+| **device-mapper（dm）** | 核心把「邏輯區塊 → 實體區塊」對應表變成裝置的框架 | LVM 啟用 LV = 把 LE → PE 表載入 dm；linear / mirror / raid / thin / cache / crypt 都是 dm 的目標模組，LUKS 也走同一框架 |
+| **`dmsetup`** | 直接操作 device-mapper 表的工具 | LVM 指令卡住時能看到核心那一側的真相：open count、表內容、suspend 狀態 |
+| **partial / refresh needed** | `lvs` 健康欄的兩種狀態：缺 PV / 底層變動後 dm 表需要重載 | 都要對照 LE → PE 表才知道缺的是哪一段；§11 的災難表由此判讀 |
+
 **為什麼**：修復 LVM 問題時，`lvs` 的錯誤訊息（partial、refresh needed、not enough free extents）都要對照「哪個 LE 落在哪個 PV 的哪些 PE」才解讀得出來；而 device-mapper 才是真正在核心執行 I/O 的層，LVM 指令卡住或 `lvremove` 報 busy 時，`dmsetup` 能直接看到核心那一側的狀態。
 
 **怎麼做**：先記住三層與 device-mapper 的對應關係，再用下列指令看每一層的實際佈局。
@@ -50,6 +64,15 @@ sudo lvmconfig --type full | less                                   # 目前生�
 
 ### 1.1 PE 大小與對齊
 
+**名詞與關係**：PE 大小決定 metadata 的規模，對齊決定 LV 起點是否落在底層硬體的邊界上，兩者都是建立 VG / PV 時一次定終身的參數：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **對齊（`pe_start`）** | PV 上第一個 PE 的起始位移（預設 1 MiB） | 決定所有 LV 的起點；應是 RAID 條帶大小或 4Kn 磁碟實體區塊的整數倍 |
+| **條帶（stripe）** | RAID 卡或 striped LV 把資料切成的固定大小片段，輪流寫到各成員碟 | 起點不對齊條帶時，一次寫入跨兩個條帶就得寫兩次（讀—改—寫） |
+| **4Kn** | 實體與邏輯磁區都是 4 KiB 的新式磁碟（相對於對外模擬 512 位元組的 512e） | 對齊 1 MiB 已能滿足；只有 RAID 卡的大條帶才需要手動指定 `--dataalignment` |
+| **metadata 區（`--metadatasize` / `--metadatacopies`）** | PV 上保留給 metadata 的空間大小與份數 | LV / 快照越多 metadata 越大，預設 1 MiB 可能不夠；多份可提高 label 損毀時的存活率 |
+
 **為什麼**：PE 大小建立後不能改，數十 TB 的 VG 用預設 4 MiB 會有數百萬個 extent，metadata 膨脹、每次 `lvs` 與變更都變慢。對齊則決定 LV 起點是否落在磁碟實體區塊或 RAID 條帶的邊界，錯位時每次寫入都會變成跨兩個條帶的兩次寫入。
 
 **怎麼做**：
@@ -66,11 +89,22 @@ sudo pvcreate --metadatasize 16M --metadatacopies 2 /dev/sdb   # metadata 區大
 
 ## 2. 條帶化（Striped）與 RAID LV
 
+**名詞與關係**：LVM 的 segtype 決定一個 LV 的 LE 怎麼對應到 PE，冗餘與效能都由它決定；與 mdadm 的關係是「同一套 RAID 演算法、不同的管理粒度」：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **linear（線性）** | 預設 segtype：LE 依序對應到 PE，先填滿一個 PV 再用下一個 | 無冗餘、無並行；其他 segtype 都是它的替代 |
+| **striped（條帶化）** | 把連續 LE 輪流分到 N 個 PV，等同 RAID0 | 吞吐約 ×N，任一 PV 壞就全毀；擴充需要 N 個 PV 都有空間 |
+| **mirror / raid1** | 每筆資料寫到兩個以上 PV | 舊式 `mirror` segtype 已被 `raid1` 取代（後者用 md 的程式碼、每個副本有自己的 rmeta） |
+| **RAID LV（raid1 / 5 / 6 / 10）** | LVM 透過核心 dm-raid 模組（借用 md 的 RAID 引擎）在單一 LV 內做冗餘 | 與 mdadm 是同一套演算法，差別在管理層：mdadm 以整顆碟為單位、RAID LV 以 LV 為單位 |
+| **mdadm** | 獨立於 LVM 的軟體 RAID 工具（06 章 §5） | 兩者可疊：mdadm 的 `/dev/md0` 當 PV；也可只選其一 |
+| **冗餘** | 可壞掉幾顆成員碟而不丟資料 | striped 為 0、raid1 為副本數減 1、raid5 為 1、raid6 為 2 |
+
 **為什麼**：單一 PV 的頻寬有限。striped 把 I/O 平均分散到多顆碟以提升吞吐（但任一顆壞就全毀）；RAID LV 則在 LVM 內提供冗餘，不必再疊 mdadm 一層，還能對每個 LV 個別選等級——同一個 VG 內資料庫 LV 用 raid10、暫存 LV 用線性。
 
 ### 2.1 Striped（RAID0，只求效能）
 
-**為什麼**：適合純暫存、可重建的資料（build cache、影片轉檔暫存）。最常踩的坑在擴充：striped LV 擴充時必須在「相同數量的 PV」上都有空間，VG 總量夠也會報 `not enough free extents`。
+**為什麼**：適合純暫存、可重建的資料（build cache、影片轉檔暫存）；條帶數（`-i`，資料輪流分散到幾個 PV）與條帶大小（`-I`，每輪寫到同一個 PV 的 KiB 數）在建立時就固定。最常踩的坑在擴充：striped LV 擴充時必須在「相同數量的 PV」上都有空間，VG 總量夠也會報 `not enough free extents`。
 
 **怎麼做**：
 
@@ -81,6 +115,20 @@ sudo lvextend -L +100G vg0/lv_stripe                          # 擴充時需在�
 ```
 
 ### 2.2 RAID LV（LVM 內建 md-raid，取代 mdadm + LVM 雙層）
+
+**名詞與關係**：RAID LV 在 `lvs -a` 底下會多出一堆隱藏子 LV，維護指令都是針對這些子 LV 的狀態：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **dm-raid** | device-mapper 的 RAID 目標模組，內部呼叫 md 的 RAID 引擎 | RAID LV 的核心依賴；缺了模組 `lvcreate --type raid*` 直接失敗 |
+| **`_rimage_N` / `_rmeta_N`** | RAID LV 的內部子 LV：第 N 個資料副本（image）/ 它的 RAID superblock（metadata） | `lvs -a` 才看得到；每個副本各佔一個 PV，rmeta 記錄同步狀態 |
+| **`-m`（mirrors）** | 額外副本數：`-m 1` = 總共兩份 | raid1 / raid10 用；`lvconvert -m` 可線上加減副本 |
+| **`-i`（stripes）** | 資料條帶數 | raid5 總顆數 = i+1、raid6 = i+2、raid10 = i × (m+1) |
+| **`Cpy%Sync` / `sync_percent`** | 副本同步進度 | 建立與換碟後從 0 到 100；未到 100 前再壞一顆就丟資料 |
+| **`--syncaction check / repair`** | 讀所有副本比對（check）/ 不一致時修正（repair） | 對應 mdadm 的 `sync_action`；`raid_mismatch_count` 是 check 的結果 |
+| **`lvconvert --repair` / `--replace`** | 用 VG 內空閒 PV 頂替已壞的副本 / 主動把某 PV 上的副本搬到另一 PV | repair 是事後、replace 是事前；都需要 VG 有空閒 PE |
+| **`writemostly`** | 標記某副本「盡量只寫不讀」 | SSD + HDD 混合鏡像時讓讀取全走 SSD |
+| **dmeventd** | LVM 的 device-mapper 事件監控 daemon | 收到副本失效事件時可自動觸發 repair（§9） |
 
 **為什麼**：資料 LV 需要冗餘、但不想整顆碟做 mdadm 時用它。線上就能把線性 LV 轉成鏡像、鏡像升到三副本、raid5 升 raid6，這是 mdadm 難以做到的彈性。SSD + HDD 混合鏡像時把 HDD 標成 `writemostly`，讀取全走 SSD，HDD 只當備援。
 
@@ -117,6 +165,30 @@ sudo lvchange --writemostly /dev/sdc vg0/lv_mirror                   # 慢碟只
 ---
 
 ## 3. Thin Provisioning（已實測）
+
+**名詞與關係**：thin 在 VG 與 LV 之間多了一個「池」，池又分資料區與 metadata 區；快照、超額配置、自動擴充、空間回收全都是對這個池的操作：
+
+```
+VG
+ └─ thin pool（tpool）＝ 隱藏的 tpool_tdata（資料區）＋ tpool_tmeta（metadata：每個 thin volume 的區塊對應表）
+      ├─ thin1（虛擬 1T，只佔實際寫入的 chunk）
+      │    └─ thin1_snap（thin 快照：只複製 metadata 指標，與 thin1 共用未變動的 chunk）
+      └─ thin2 …
+ 監控：dmeventd 監聽 pool 使用率 → 依 lvm.conf 的 autoextend 設定自動 lvextend（VG 要留空間）
+ 回收：檔案系統 discard / fstrim → pool 把 chunk 標回空閒（passdown 再往下傳給 SSD）
+```
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **thin pool** | 實際佔用 VG 空間的池，由 tdata + tmeta 兩個隱藏 LV 組成 | 所有 thin volume 與 thin 快照的區塊都從它拿 |
+| **tdata / tmeta** | pool 的資料區 / metadata 區（記「thin volume 的哪個虛擬區塊 → pool 的哪個 chunk」） | metadata 滿了整個 pool 無法再配置也無法啟用，比 data 滿更難修 |
+| **thin volume** | 只有虛擬大小的 LV | 寫入時才向 pool 要 chunk；`data_percent` 是它實際用了多少 |
+| **chunk（`--chunksize`）** | pool 配置與快照差異追蹤的最小單位 | 越小快照越省空間但 metadata 越大；建立後不可改 |
+| **thin 快照** | 複製 origin 的 metadata 指標、共用所有未改動 chunk 的新 thin volume | 與傳統 COW 快照不同：不預留大小、不拖慢 origin、可層疊、預設 skip activation（§7） |
+| **超額配置** | thin volume 虛擬大小總和大於 pool | 這就是 pool 會滿的原因；VG 必須留空間給 autoextend |
+| **autoextend（`thin_pool_autoextend_*`）** | lvm.conf 設定：pool 用到某百分比就自動 `lvextend` 多少 | 由 dmeventd 執行，dmeventd 沒在監控就等於沒設（§9） |
+| **discard / passdown** | 檔案系統釋放區塊時通知 pool / pool 再把通知往下傳給底層 SSD | 沒有 discard，刪掉的檔案永遠不會還回 pool |
+| **thin_check / thin_repair** | 檢查 / 修復 tmeta 的工具（🟠 thin-provisioning-tools；🔵 device-mapper-persistent-data） | `lvconvert --repair` 在背後呼叫它們 |
 
 **為什麼**：傳統 COW 快照每寫一次原卷就要複製一次舊資料，快照多了原卷慢好幾倍；thin 快照只記錄 metadata 指標，可以層疊上百個而不拖慢原卷，也讓 LV 可以「超額配置」、先開卷後買碟。但 thin pool 滿了會讓所有 thin volume 同時 I/O error，且 metadata 滿比 data 滿更難修，所以監控與自動擴充不是選配。
 
@@ -158,6 +230,20 @@ sudo lvremove vg0/thin1_snap vg0/thin1 vg0/tpool
 
 ## 4. 快取（dm-cache / dm-writecache）
 
+**名詞與關係**：兩種快取都是 device-mapper 的目標：把一個快的 LV 接到慢 LV 前面；差別在「加速什麼」與「寫入何時算完成」：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **dm-cache** | device-mapper 的讀寫快取目標：把慢 LV 的熱區塊複製一份到快裝置 | `--type cache`；資料仍以 HDD 為主，SSD 上是副本 |
+| **dm-writecache** | device-mapper 的純寫入快取：寫入先落 SSD、背景回寫 HDD | `--type writecache`；不加速讀 |
+| **cachevol** | 新式做法：一個普通 LV 同時放快取資料與快取 metadata | `lvconvert --cachevol lv_fast`；建議用 |
+| **cachepool** | 舊式做法：快取資料與 metadata 是兩個獨立 LV 組成的 pool | 多一層管理；只有舊文件會要求 |
+| **cachemode `writethrough` / `writeback`** | 寫入同時落 SSD 與 HDD 才回應 / 只落 SSD 就回應 | writethrough 安全但寫入不加速；writeback 快但 SSD 壞就丟未回寫的資料 |
+| **cache_policy（smq）** | 決定哪些區塊該進快取、哪些該淘汰的演算法 | 預設 smq，通常不需調整 |
+| **dirty blocks** | writeback 模式下已在 SSD 但尚未回寫 HDD 的區塊 | `--uncache` / `--splitcache` 前必須全部 flush 回 HDD |
+| **`--uncache` / `--splitcache`** | 移除快取並丟棄 lv_fast / 分離但保留 lv_fast | 兩者都會先 flush，時間取決於 dirty blocks 數量 |
+| **WAL** | 資料庫的 write-ahead log：先寫日誌再改資料頁 | 典型「小量、連續、fsync 密集」的寫入，是 writecache 的最佳受益者 |
+
 **為什麼**：預算只夠一顆小 SSD、卻有一大堆 HDD 上的熱資料時，dm-cache 能讓常讀的區塊自動留在 SSD。`writeback` 模式把寫入先落在 SSD 再回寫 HDD，SSD 壞掉或斷電就丟資料，所以預設是安全的 `writethrough`；`writecache` 則專門吸收資料庫 WAL、日誌這類寫入尖峰。
 
 **怎麼做**：先依負載選模式，再把 SSD 加入同一個 VG 建成 cache LV。
@@ -189,6 +275,19 @@ sudo lvconvert --splitcache vg0/lv_slow                             # 移除前�
 ---
 
 ## 5. 搬移與重組：pvmove、vgsplit、vgexport（已實測）
+
+**名詞與關係**：這一節的指令分三組——搬 PE（pvmove）、切 VG（vgsplit / vgmerge）、換機器（vgexport / vgimport）——共同的敵人是 UUID 衝突與「兩台同時啟用」：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **pvmove** | 把某 PV 上的 PE 線上搬到其他 PV | 內部建暫時 mirror（需 dm-mirror 或 dm-raid 模組）、同步完切換再拆；中斷可續跑 |
+| **vgsplit / vgmerge** | 把某些 PV（及其上完整的 LV）拆成新 VG / 把兩個 VG 合一 | LV 不能跨越拆分線，striped 跨 PV 時會拒絕 |
+| **vgexport / vgimport** | 在 metadata 上標記「此 VG 已交出」/ 取消標記 | exported 的 VG 不會被自動啟用，用來安全地把碟搬到另一台機器 |
+| **VG UUID / PV UUID** | 每個 VG 與 PV 的唯一識別碼，寫在 metadata / label 裡 | 同名 VG 可用 UUID 指定 `vgrename`；`dd` 克隆會連 UUID 一起複製造成衝突 |
+| **vgimportclone** | 為克隆碟上的 PV / VG 產生新 UUID 並改名後匯入 | 唯一能解 UUID 重複的正規方法 |
+| **`vgreduce --removemissing`** | 把已經不存在的 PV 從 metadata 中移除 | `--force` 會連帶刪掉落在它上面的 LV；先用 partial 啟用撈資料 |
+| **`--activationmode partial`** | 允許在缺 PV 的情況下啟用 LV | 缺的那段讀到錯誤（linear）或由副本補上（raid / mirror） |
+| **vgimportdevices** | 🔵 掃描新碟並把找到的 VG 加進 devices file | Fedora 搬碟後 `vgimport` 前的必要步驟（§8） |
 
 **為什麼**：硬碟退役、搬到新機、或兩個 VG 要合併時，`pvmove` 能在服務不停的狀態下搬資料（它其實是暫時建一個 mirror、同步完再拆掉，中斷後可續跑）。`vgexport` 把 VG 標記為「已交出」，避免舊機與新機同時啟用同一組碟、metadata 互相覆寫；接了克隆碟造成 UUID 重複時要用 `vgimportclone`，手動改名救不了 UUID 衝突。
 
@@ -226,6 +325,18 @@ sudo vgimportclone -n vg_clone /dev/sde1        # 產生新 UUID 再匯入
 
 ## 6. Metadata 備份與還原（已實測）
 
+**名詞與關係**：metadata 有三個存放處——PV 開頭（正本）、`/etc/lvm/backup`（最新副本）、`/etc/lvm/archive`（歷史副本）——還原就是把某份副本寫回正本：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **metadata** | PV 開頭的 VG 描述文字（§1） | `vgcfgbackup` 存的、`vgcfgrestore` 寫回的就是這段文字 |
+| **`/etc/lvm/backup/<vg>`** | 每次變更「後」最新的 metadata 副本 | 只有一份、隨時被覆寫；代表「現在的狀態」 |
+| **`/etc/lvm/archive/<vg>_NNNNN-*.vg`** | 每次變更「前」的 metadata 副本，帶流水號與描述 | 誤刪 LV 要找的是「執行 lvremove 之前」那一份；`vgcfgrestore -l` 會列出描述 |
+| **vgcfgbackup / vgcfgrestore** | 手動匯出 / 把某份副本寫回所有 PV | restore 前必須停用 VG；含 thin 時要 `--force` |
+| **PV label** | PV 開頭的標籤（§1） | 壞了 `pvs` 看不到；`pvcreate --uuid --restorefile` 用 archive 裡的 UUID 重寫 label 而不動資料 |
+| **`--restorefile`** | 告訴 `pvcreate` 依這份 metadata 的 PE 佈局來設 `pe_start` | 沒有它，重建的 label 可能把 metadata 區覆蓋到資料上 |
+| **lvmdump** | 打包 metadata、dm 表、log 的診斷工具 | 求助或開 bug 時附上 |
+
 **為什麼**：`lvremove` 只刪掉 metadata 裡的 LV 定義，PE 上的資料還在——所以誤刪後只要 metadata 能還原、區塊尚未被覆寫，資料就救得回來；這也是為什麼誤刪後第一件事是「停止寫入」而不是重開機。LVM 每次變更前都自動備份 metadata：`/etc/lvm/backup/<vg>`（最新）與 `/etc/lvm/archive/<vg>_NNNNN-*.vg`（歷史，實測命名如 `vgadv_00001-190095625.vg`），這是誤刪 LV 後最重要的救命資料。
 
 **怎麼做**：
@@ -252,6 +363,19 @@ sudo lvmdump -a -m                                      # 打包所有 LVM 診�
 
 ## 7. 啟用、鎖定與 initramfs
 
+**名詞與關係**：「啟用」是 LVM 與核心的交界：metadata 裡的 LV 只有在被啟用後才存在於 `/dev`；誰在何時啟用什麼，由 autoactivation、skip 旗標、volume_list 與 initramfs 共同決定：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **啟用（activation）** | 把 LV 的 LE → PE 表載入 device-mapper，產生 `/dev/vg/lv` | `lvs` Attr 第 5 位 `a`；未啟用的 LV 存在於 metadata 但沒有裝置節點 |
+| **autoactivation** | 開機（或裝置出現）時由 udev 事件觸發的自動啟用 | `--setautoactivation n` 關掉，適合外接 / 共用碟 |
+| **activation skip（`-K` / `--setactivationskip`）** | LV 層級旗標：`vgchange -ay` 也跳過它，必須 `-K` 明確啟用 | thin 快照預設帶此旗標，防止一開機就啟用一堆快照 |
+| **tag / `volume_list`** | 給 LV 貼標籤；lvm.conf 的 `volume_list` 只允許列出的 VG / tag 被啟用 | 叢集或多環境共用碟時的白名單機制 |
+| **initramfs（🟠 initramfs-tools / 🔵 dracut）** | 開機早期的迷你根檔案系統，內含 lvm2 與 lvm.conf 的副本 | 根 VG 在這裡被啟用；VG 改名、過濾改了都要重建它 |
+| **`rd.lvm.lv=vg/lv`** | 🔵 dracut 的核心參數：只啟用指定 LV | 讓 initramfs 不去碰不相干的 VG |
+| **udev 規則（69-dm-lvm.rules）** | 裝置出現時觸發 `pvscan --cache` 進而啟用 VG 的事件機制 | 容器 / 無 udev 環境要關 `udev_sync`（§11） |
+| **lvmlockd（sanlock / dlm）** | LVM 的叢集鎖管理員；兩種後端：sanlock 用共用磁碟上的租約、dlm 用叢集網路 | 多台同時啟用同一 VG（`--shared`）的唯一安全方式 |
+
 **為什麼**：外接碟、SAN 共用碟或備份克隆碟若在開機時被自動啟用，可能被兩台機器同時掛載、或搶走裝置名；`setautoactivation n` 與 activation skip 就是為了控制這件事。根卷 VG 改名或搬 VG 後，initramfs 裡仍記著舊名，是「開機卡在 Volume group not found」最常見的原因。
 
 **怎麼做**：
@@ -275,6 +399,19 @@ sudo lvchange --addtag backup vg0/lv_data; sudo lvs @backup   # 標籤，可在 
 ---
 
 ## 8. Devices file 與過濾（🟠🔵 行為差異）
+
+**名詞與關係**：LVM 找 PV 有兩套機制——舊的 filter（黑白名單 regex）與新的 devices file（明確清單）——兩者都是在回答「哪些區塊裝置可以被當成 PV 掃描」：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **devices file（`/etc/lvm/devices/system.devices`）** | lvm2 2.03.12+ 的白名單：只掃描檔中列出的裝置 | 取代 filter；`pvcreate` 自動加入，外來碟不會自動出現 |
+| **`lvmdevices`** | 管理 devices file 的指令（列出、加、刪、檢查、更新 ID） | 🟠 24.04 套件未編入 |
+| **`vgimportdevices`** | 掃描所有磁碟，把找到的 VG 的 PV 全部加入 devices file | 搬碟到 Fedora 後的第一步 |
+| **裝置 ID（IDTYPE：sys_wwid / sys_serial / mpath_uuid / loop_file…）** | devices file 用來辨識裝置的「內容識別」而非路徑 | 換 HBA / 控制器後 ID 可能變，需 `lvmdevices --update` |
+| **`filter` / `global_filter`** | lvm.conf 中以 regex 接受 / 拒絕裝置路徑的舊機制 | 順序敏感、第一個符合的規則生效；`global_filter` 連 udev 觸發的掃描也套用 |
+| **multipath（mpath）** | 同一顆 SAN 碟經多條路徑出現為多個 `/dev/sdX`，由 multipathd 合成 `/dev/mapper/mpathN` | LVM 必須只認 mpath 裝置、排除子路徑，否則同一 PV 出現多次 |
+| **`--devicesfile ""`** | 單次指令忽略 devices file | 找「消失的 PV」用，不改設定 |
+| **`/etc/lvm/lvmlocal.conf`** | 本機覆寫設定檔 | 套件升級不覆蓋；devices / activation 區段的本機調整放這裡 |
 
 **為什麼**：LVM 傳統上掃描所有區塊裝置找 PV：KVM 主機會掃到 VM 映像檔內部的 PV、多路徑環境會同時看到 mpath 裝置與底下的子路徑、備份克隆碟會造成 UUID 重複——這些都可能讓 LVM 啟用錯的裝置。LVM 2.03.12+ 引入 **devices file**，改成只掃描列在 `/etc/lvm/devices/system.devices` 的裝置，取代舊的 `filter` regex。兩者的差異純粹來自版本：Ubuntu 24.04 的 lvm2 2.03.16 仍以 filter 為主，Fedora 44 的 2.03.38 已預設 devices file，所以同樣的「搬硬碟到新機」在 Fedora 上會看不到 VG。
 
@@ -311,6 +448,17 @@ sudo pvscan --cache; sudo pvs -vvv 2>&1 | grep -i "filter" | head    # 除錯過
 
 ## 9. 監控、效能與 dmeventd
 
+**名詞與關係**：LVM 自己沒有常駐程序，所有「自動反應」都靠 dmeventd；效能相關名詞則是 dm 層的統計與幾個建立時決定的參數：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **dmeventd** | device-mapper 事件監控 daemon | thin autoextend、RAID 副本修復、傳統快照 autoextend 都由它觸發 |
+| **`lvm2-monitor.service` / `dm-event.socket`** | 開機時把已啟用的 LV 註冊給 dmeventd 的單元 / 讓 dmeventd 隨需啟動的 socket | 兩者都由 lvm2 套件提供；`seg_monitor` 欄顯示某 LV 是否在監控中 |
+| **readahead** | 核心對某裝置預讀多少磁區 | 循序讀為主的 LV 可調大；`lv_kernel_read_ahead` 是核心實際值 |
+| **dmstats** | device-mapper 內建的分區段 I/O 統計 | 比 iostat 更細，可對 LV 內特定區段計數 |
+| **chunksize（傳統快照 `-c`）** | COW 快照每次複製的單位 | 太小則 metadata 大、太大則寫放大；thin 的 chunk 是另一個獨立參數（§3） |
+| **`archive { retain_days / retain_min }`** | lvm.conf：archive 保留天數 / 最少份數 | 數百 LV 的 VG 每次變更都寫一份 archive，會拖慢操作 |
+
 **為什麼**：thin pool 自動擴充、RAID LV 壞碟自動修復、快照滿了自動延伸，都靠 dmeventd 監聽 device-mapper 事件——它沒在跑，`lvm.conf` 裡的 autoextend 設定就只是擺設。效能問題則多半來自對齊錯誤、傳統快照過多，或數百個 LV 讓 metadata 操作變慢。
 
 **怎麼做**：
@@ -333,6 +481,17 @@ iostat -xz 1 /dev/dm-0                                                          
 
 ## 10. VDO（重複資料刪除 + 壓縮，🔵 Fedora / RHEL 原生）
 
+**名詞與關係**：VDO 的結構與 thin 幾乎平行——一個實際佔空間的 pool、多個對外呈現邏輯大小的 LV——只是 pool 內多了 dedup 與壓縮引擎：
+
+| 名詞 | 一句話定義 | 與其他名詞的關係 |
+|---|---|---|
+| **VDO（Virtual Data Optimizer）** | Red Hat 的區塊層重複資料刪除 + 壓縮 + 精簡配置引擎 | 核心模組 dm-vdo（舊名 kvdo）；lvm2 以 `--type vdo` 整合 |
+| **重複資料刪除（dedup）** | 內容相同的區塊只存一份，其餘存指標 | VM 映像、備份倉庫最有效 |
+| **壓縮（compression）** | 區塊寫入前先壓縮 | 與 dedup 可分別開關（`lvchange --compression` / `--deduplication`） |
+| **vpool（VDO pool LV）** | 實際佔 VG 空間的 VDO 池 | 對應 thin pool 的角色；`-L` 是它的實體大小 |
+| **VDO LV（`-V`）** | 掛在 vpool 上、對外呈現邏輯大小的 LV | 對應 thin volume；`-V` 是邏輯大小 |
+| **超額配置** | 邏輯大小大於實體大小 | 實體滿了的後果與 thin pool 相同：全部 I/O error，所以要監控 `vdo_used_size` |
+
 **為什麼**：VM 映像、備份倉庫這類重複度高的資料，重複資料刪除加壓縮能省下數倍空間。VDO 是 Red Hat 收購後開源的技術，已整合進 lvm2 並隨 Fedora 核心內建；Ubuntu 沒有打包，同樣需求走 ZFS 或 Btrfs。
 
 **怎麼做**：
@@ -352,7 +511,7 @@ sudo lvchange --compression n vg0/vpool
 
 ## 11. 常見災難與修復流程
 
-**為什麼**：LVM 的錯誤訊息通常不直接說原因——`not enough free extents` 其實是 striped 需要每個 PV 都有空間、`Device or resource busy` 常是 LUKS 或 md 疊在上面。下表把實際遇過的症狀對應到根因與處理順序；救援時先查表再動手，避免在慌亂中執行 `--force`。
+**為什麼**：LVM 的錯誤訊息通常不直接說原因——`not enough free extents` 其實是 striped 需要每個 PV 都有空間、`Device or resource busy` 常是 LUKS（cryptsetup 解鎖出的 dm-crypt 裝置）或 md（mdadm 軟體 RAID 陣列）疊在上面。下表把實際遇過的症狀對應到根因與處理順序；救援時先查表再動手，避免在慌亂中執行 `--force`。
 
 **怎麼做**：
 
