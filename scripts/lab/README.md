@@ -1,6 +1,13 @@
 # 實驗環境（驗證用）
 
-一鍵建立：`bash scripts/lab/setup-lab.sh up|shell|status|test|down`（詳見主 README「5 分鐘建立實驗環境」）。手動建法如下。
+兩種方式，統一由這裡的腳本建立（主 README「建立實驗環境」有使用說明）：
+
+| 腳本 | 環境 | 適用 |
+|---|---|---|
+| `setup-lab.sh up\|shell\|status\|test\|down` | 兩台 systemd privileged 容器 | 大多數章節；本手冊的驗證環境 |
+| `setup-vm.sh up\|ssh\|console\|snapshot\|status\|down` | KVM + 官方雲端映像 + cloud-init 的兩台 UEFI VM | 01 安裝、12 開機救援、14 UEFI、16 SELinux enforcing；未於 WSL2 驗證主機實際啟動，已驗證語法、cloud-config schema 與映像 URL |
+
+容器的手動建法如下。
 
 本手冊所有指令與腳本皆在下列兩個 **啟用 systemd 的 privileged 容器** 中驗證（WSL2 主機，共用核心 6.18；LVM 快照 / dm-crypt / md-raid / btrfs 模組由主機 `modprobe` 載入）：
 

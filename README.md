@@ -5,41 +5,66 @@
 
 本手冊以「一套流程、兩種發行版」的方式撰寫：主要步驟共用，凡 Ubuntu 與 Fedora **做法不同之處**一律以下列標記呈現，方便對照。
 
-## 5 分鐘建立實驗環境（建議先做）
+## 建立實驗環境（建議先做）
 
-**為什麼**：這份手冊的每一條指令都在實驗機上跑過，讀者也應該邊讀邊做——尤其是 17 章的故障情境，光讀沒有用。下面的腳本會建立兩台啟用 systemd 的 privileged 容器（`lab-ubuntu`：Ubuntu 24.04、`lab-fedora`：Fedora 44），它們有完整的 systemd、apt / dnf、防火牆、journald，足以練習除了「開機、真實 SELinux enforcing、實體硬體」以外的所有章節。
+**為什麼**：這份手冊的每一條指令都在實驗機上跑過，讀者也應該邊讀邊做——尤其是 17 章的故障情境，光讀沒有用。實驗環境有兩種，**所有準備方式都集中在這一節與 [`scripts/lab/`](scripts/lab/README.md)**，各章不再各自說明：
 
-**需要**：Docker（Docker Desktop、docker-ce）或 Podman（`CONTAINER_CLI=podman`）；Linux、WSL2、macOS 皆可；約 1.5 GB 磁碟。
+| | 方式 A：容器（預設） | 方式 B：虛擬機 |
+|---|---|---|
+| 建立時間 | 第一次 3 分鐘，之後 20 秒 | 首次下載映像 + 2～3 分鐘 |
+| 需求 | Docker 或 Podman；Linux / WSL2 / macOS | Linux 主機 + KVM（或 Multipass / VirtualBox） |
+| 能練習的章節 | 02～13、15、17 的絕大多數內容（systemd、apt/dnf、防火牆、LVM、備份、HA 設定、故障情境） | 全部，**特別是** 01 安裝與分割、12 開機救援、14 UEFI / Secure Boot / TPM、16 SELinux enforcing |
+| 限制 | 共用主機核心：無 udev、無真實開機、SELinux disabled（容器內的差異與處理見 [`scripts/lab/README.md`](scripts/lab/README.md)） | 較耗資源；需要虛擬化權限 |
+
+### 方式 A：容器（`setup-lab.sh`）
 
 ```bash
 git clone git@github.com:ChunPingWang/linux-tutorial.git && cd linux-tutorial
-bash scripts/lab/setup-lab.sh up          # 建映像、啟動兩台、部署 04 章的範例服務 myapp（第一次約 3 分鐘，之後 20 秒）
-bash scripts/lab/setup-lab.sh status      # lab-ubuntu running systemd=running myapp=active ...
+bash scripts/lab/setup-lab.sh up             # 建映像、啟動 lab-ubuntu（24.04）與 lab-fedora（44）、部署 04 章範例服務 myapp
+bash scripts/lab/setup-lab.sh status         # lab-ubuntu running systemd=running myapp=active ...
 bash scripts/lab/setup-lab.sh shell ubuntu   # 進入（或 fedora）；手冊掛在 /manual，腳本已複製到 /root
 ```
 
 進入容器後可以直接做的事：
 
 ```bash
-# 照著章節敲指令（02～09 章的絕大多數指令都可直接執行）
-apt update && apt install -y nginx          # 🟠   /   dnf install -y nginx   # 🔵
-# 17 章故障情境：注入 → 自己排查 → 對照 → 還原
-bash /root/scen/01-disk-full.sh inject
-bash /root/scen/01-disk-full.sh status
-bash /root/scen/01-disk-full.sh solve
-# 06 / 15 章儲存實驗（loop 裝置上的 LVM、RAID、LUKS、Btrfs；主機需先載入模組，setup-lab.sh up 會嘗試）
-bash /root/lab-storage-test.sh
-bash /root/lab-lvm-advanced-test.sh
-# 11 章備份實驗
-bash /root/lab-backup-test.sh
+apt update && apt install -y nginx          # 🟠 照著章節敲指令   /   dnf install -y nginx   # 🔵
+bash /root/scen/01-disk-full.sh inject      # 17 章故障情境：注入 → 自己排查 → status 對照 → solve 還原
+bash /root/lab-storage-test.sh              # 06 / 15 章儲存實驗（LVM、RAID、LUKS、Btrfs；setup-lab.sh up 會嘗試載入模組）
+bash /root/lab-backup-test.sh               # 11 章備份實驗
 ```
 
 ```bash
-bash scripts/lab/setup-lab.sh test        # 一次跑完 systemd / storage / backup 三支測試（約 5～10 分鐘）
-bash scripts/lab/setup-lab.sh down        # 移除容器（映像保留，下次 up 很快）
+bash scripts/lab/setup-lab.sh test          # 一次跑完 systemd / storage / backup 三支測試（約 5～10 分鐘）
+bash scripts/lab/setup-lab.sh down          # 移除容器（映像保留）
 ```
 
-**容器做不到、需要真正 VM 的章節**：01（安裝程式、分割區）、14（UEFI / Secure Boot / TPM）、16 的 enforcing 行為、12 的開機救援。這些請用 VirtualBox / virt-manager / Multipass 開一台 VM 練習（01 章 §6 有一行建 VM 的指令）；容器的限制與處理方式列在 [`scripts/lab/README.md`](scripts/lab/README.md)。
+### 方式 B：虛擬機
+
+**B1. KVM / libvirt + 官方雲端映像（`setup-vm.sh`，Linux 主機）**：用 01 章 §6 的雲端映像與 cloud-init 自動建好兩台可 SSH 的 VM，UEFI 開機、有序列主控台，可練習 GRUB / 救援模式 / Secure Boot / SELinux enforcing。
+
+```bash
+# 主機準備（一次）
+sudo apt install -y qemu-system-x86 libvirt-daemon-system virtinst cloud-image-utils && sudo usermod -aG libvirt $USER   # 🟠
+sudo dnf install -y @virtualization virt-install cloud-utils && sudo usermod -aG libvirt $USER                          # 🔵
+[ -f ~/.ssh/id_ed25519.pub ] || ssh-keygen -t ed25519      # VM 用這把金鑰登入（使用者 admin）
+# 建立與使用
+bash scripts/lab/setup-vm.sh up                 # 下載 Ubuntu 24.04 與 Fedora 44 雲端映像、建 seed ISO、virt-install（UEFI）
+bash scripts/lab/setup-vm.sh ssh ubuntu         # 或 fedora
+bash scripts/lab/setup-vm.sh console fedora     # 序列主控台：看 GRUB 選單、進 rescue.target / rd.break（Ctrl+] 離開）
+bash scripts/lab/setup-vm.sh snapshot ubuntu before-upgrade   # 危險操作前先快照；還原：virsh snapshot-revert lab-vm-ubuntu before-upgrade
+bash scripts/lab/setup-vm.sh status ; bash scripts/lab/setup-vm.sh down
+```
+
+VM 內把手冊的腳本帶進去：`scp -r scripts admin@<ip>:` 後同樣執行 `scripts/lab/scenarios/*.sh` 與 `lab-*-test.sh`（VM 有 udev 與真實核心，不需要容器的那些變通）。
+
+**B2. 從安裝媒體互動安裝（練習 01 章）**：下載 ISO（01 章 §1.1），用 `virt-install --cdrom <iso> --boot uefi --disk size=40 --memory 4096 --os-variant ubuntu24.04|fedora-rawhide` 或 virt-manager / VirtualBox / Hyper-V 新建 VM，照 01 章 §3～§4 走安裝程式；無人值守版用 01 章 §5 的 autoinstall / Kickstart 搭配 `--cdrom` 與 seed ISO。
+
+**B3. 沒有 Linux 主機時**：
+- Windows / macOS：**Multipass**（Ubuntu 專用，`multipass launch 24.04 --name lab-ubuntu --cloud-init scripts/examples/unattended/…` 或直接 `multipass shell`）；Fedora 用 VirtualBox / VMware 開 ISO。
+- WSL2：只能跑方式 A（容器）；01 章 §7 的 WSL 發行版不是完整環境（無 SELinux、無真實開機）。
+
+**注意**：方式 B 的腳本依賴主機有 KVM 與 libvirt；本手冊的驗證主機是 WSL2（無 libvirt），因此 `setup-vm.sh` 只驗證了語法、cloud-config schema 與映像 URL，未在本機實際啟動 VM——第一次執行請留意 `virt-install` 的錯誤訊息（常見：使用者不在 `libvirt` 群組、`default` 網路未啟動 `virsh net-start default`、UEFI 韌體套件 `ovmf` / `edk2-ovmf` 未安裝）。
 
 ## 寫作慣例：先定義名詞與關係，再說「為什麼」，最後「怎麼做」
 
@@ -97,7 +122,7 @@ sudo dnf install nginx
 | `scripts/bootstrap.sh` | 雙發行版初始化腳本（02 章） |
 | `scripts/backup-restic.sh` | restic 備份腳本，含 LVM 快照與資料庫傾印（11 章） |
 | `scripts/examples/` | 設計決策紀錄範本、systemd 單元 / timer、HA（keepalived、haproxy）、restic timer、Quadlet、Ansible、Kickstart / autoinstall、SELinux 政策範例 |
-| `scripts/lab/` | 建立驗證用 systemd 容器的 Dockerfile、四支自動化測試腳本與 `scenarios/` 故障注入腳本 |
+| `scripts/lab/` | 實驗環境：`setup-lab.sh`（容器）、`setup-vm.sh`（KVM 虛擬機）、Dockerfile、四支自動化測試腳本、`scenarios/` 故障注入腳本 |
 
 ## 驗證矩陣
 
@@ -138,4 +163,4 @@ sudo dnf install nginx
 
 ## 實驗環境建議
 
-容器實驗環境見上方「5 分鐘建立實驗環境」。需要完整開機流程的章節請用虛擬機（VirtualBox、virt-manager/KVM、VMware、Hyper-V），並在每個重要步驟前建立快照。所有 ⚠️ 標記的操作請勿直接在正式主機執行。
+容器與虛擬機的準備方式統一見上方「建立實驗環境」。做危險操作前先快照（`setup-vm.sh snapshot`）；所有 ⚠️ 標記的操作請勿直接在正式主機執行。
