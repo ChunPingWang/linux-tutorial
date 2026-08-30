@@ -1,4 +1,4 @@
 FROM fedora:44
-RUN dnf -y install systemd sudo curl vim less iproute iputils procps-ng && dnf clean all
+RUN dnf -y install systemd sudo curl vim less iproute iputils procps-ng util-linux openssl hostname && dnf clean all
 STOPSIGNAL SIGRTMIN+3
 CMD ["/usr/sbin/init"]

@@ -1,5 +1,5 @@
 set -e
-printf 'activation {\n\tudev_sync = 0\n\tudev_rules = 0\n\tverify_udev_operations = 0\n}\ndevices {\n\tobtain_device_list_from_udev = 0\n}\n' > /etc/lvm/lvmlocal.conf
+printf 'activation {\n\tudev_sync = 0\n\tudev_rules = 0\n\tverify_udev_operations = 0\n}\ndevices {\n\tobtain_device_list_from_udev = 0\n\tuse_devicesfile = 0\n}\n' > /etc/lvm/lvmlocal.conf
 cleanup() { set +e; cd /root; umount /mnt/t1 /mnt/s1 /mnt/c1 2>/dev/null; vgremove -f vgadv vgnew vgraid >/dev/null 2>&1; dmsetup remove_all 2>/dev/null; rm -rf /dev/vgadv /dev/vgnew /dev/vgraid; losetup -D 2>/dev/null; rm -f /root/a?.img; set -e; }
 cleanup; trap cleanup EXIT; cd /root
 for i in 1 2 3 4 5; do truncate -s 1G a$i.img; done

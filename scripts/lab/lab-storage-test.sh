@@ -1,16 +1,20 @@
 set -e
 . /etc/os-release
-if [ "$ID" = ubuntu ]; then apt-get install -y -q lvm2 xfsprogs btrfs-progs mdadm cryptsetup e2fsprogs quota parted gdisk smartmontools >/dev/null 2>&1; else dnf -y -q install lvm2 xfsprogs btrfs-progs mdadm cryptsetup e2fsprogs quota parted gdisk smartmontools >/dev/null 2>&1; fi
+if [ "$ID" = ubuntu ]; then apt-get install -y -q lvm2 xfsprogs btrfs-progs mdadm cryptsetup e2fsprogs quota parted gdisk smartmontools >/dev/null 2>&1; else dnf -y -q install lvm2 xfsprogs btrfs-progs mdadm cryptsetup e2fsprogs quota parted gdisk smartmontools util-linux >/dev/null 2>&1; fi
 # 容器無 udev：關閉 LVM 的 udev 同步並手動建立裝置節點（實體機 / VM 不需要）
-printf 'activation {\n\tudev_sync = 0\n\tudev_rules = 0\n\tverify_udev_operations = 0\n}\ndevices {\n\tobtain_device_list_from_udev = 0\n}\n' > /etc/lvm/lvmlocal.conf
+printf 'activation {\n\tudev_sync = 0\n\tudev_rules = 0\n\tverify_udev_operations = 0\n}\ndevices {\n\tobtain_device_list_from_udev = 0\n\tuse_devicesfile = 0\n}\n' > /etc/lvm/lvmlocal.conf   # 容器無 udev；🔵 另關閉 devices file 讓 loop 分割區可用
 mk() { vgmknodes 2>/dev/null; dmsetup mknodes 2>/dev/null; }
 cleanup() { set +e; cd /root; [ -b /dev/md0 ] || mknod /dev/md0 b 9 0; umount /mnt/data /mnt/btr /mnt/q 2>/dev/null; cryptsetup close cryptdata 2>/dev/null; vgremove -f vgtest >/dev/null 2>&1; for m in /dev/md*; do mdadm --stop $m >/dev/null 2>&1; done; dmsetup remove_all 2>/dev/null; rm -rf /dev/vgtest; losetup -D 2>/dev/null; rm -f /root/d?.img; set -e; }
 cleanup; trap cleanup EXIT; cd /root
+id alice >/dev/null 2>&1 || useradd -m alice   # 配額測試用的帳號
 for i in 1 2 3 4; do truncate -s 1200M d$i.img; done
 L1=$(losetup -f --show d1.img); L2=$(losetup -f --show d2.img); L3=$(losetup -f --show d3.img); L4=$(losetup -f --show d4.img)
 echo "loops: $L1 $L2 $L3 $L4"
 echo "--- parted/sgdisk"; parted -s $L1 mklabel gpt mkpart primary 1MiB 100%; parted -s $L1 set 1 lvm on; partprobe $L1 2>/dev/null || true; sleep 1; lsblk $L1 -o NAME,SIZE,TYPE | tail -2
-P1=${L1}p1; [ -b $P1 ] || P1=$L1
+P1=${L1}p1
+# 容器無 udev：分割區節點可能缺少或 major:minor 過期，依 sysfs 重建；仍失敗則退回整顆 loop 當 PV
+MM=$(cat /sys/block/$(basename $L1)/$(basename $L1)p1/dev 2>/dev/null || true)
+if [ -n "$MM" ]; then rm -f $P1; mknod $P1 b ${MM%:*} ${MM#*:}; else P1=$L1; fi
 echo "--- LVM"; pvcreate -ff -y $P1 $L2 >/dev/null; vgcreate vgtest $P1 $L2 >/dev/null; lvcreate -y -L 400M -n lvdata vgtest >/dev/null; mk
 mkfs.xfs -q -f /dev/vgtest/lvdata; mkdir -p /mnt/data; mount /dev/vgtest/lvdata /mnt/data; echo hello > /mnt/data/f.txt
 lvextend -L +200M -r /dev/vgtest/lvdata 2>&1; mk; true 2>&1 | grep -iE "resized|successfully" | head -2
