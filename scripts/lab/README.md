@@ -1,5 +1,7 @@
 # 實驗環境（驗證用）
 
+一鍵建立：`bash scripts/lab/setup-lab.sh up|shell|status|test|down`（詳見主 README「5 分鐘建立實驗環境」）。手動建法如下。
+
 本手冊所有指令與腳本皆在下列兩個 **啟用 systemd 的 privileged 容器** 中驗證（WSL2 主機，共用核心 6.18；LVM 快照 / dm-crypt / md-raid / btrfs 模組由主機 `modprobe` 載入）：
 
 ```bash
@@ -14,6 +16,7 @@ docker exec lab-ubuntu systemctl is-system-running   # running
 
 | 腳本 | 驗證內容 |
 |---|---|
+| `setup-lab.sh` | 建映像、啟動兩台容器（把手冊唯讀掛在 `/manual`、腳本複製到 `/root`）、載入儲存模組、部署 myapp；`shell` / `status` / `test` / `down` |
 | `lab-systemd-test.sh` | 部署 `scripts/examples/myapp.service`、`backup.timer`，確認服務可用、timer 排程、`systemd-analyze security` |
 | `lab-storage-test.sh` | loop 裝置上實測 parted、LVM 建立 / 線上擴充 / 快照合併還原、ext4 縮放、mdadm RAID1、LUKS2、Btrfs 子卷快照、ext4 與 XFS 配額 |
 | `lab-lvm-advanced-test.sh` | striped、thin pool / 快照 / 擴充、pvmove、vgsplit / vgexport / vgmerge、RAID1 LV、metadata 備份還原、devices file（需主機先 `modprobe dm-raid dm-mirror dm-thin-pool`） |

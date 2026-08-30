@@ -5,6 +5,42 @@
 
 本手冊以「一套流程、兩種發行版」的方式撰寫：主要步驟共用，凡 Ubuntu 與 Fedora **做法不同之處**一律以下列標記呈現，方便對照。
 
+## 5 分鐘建立實驗環境（建議先做）
+
+**為什麼**：這份手冊的每一條指令都在實驗機上跑過，讀者也應該邊讀邊做——尤其是 17 章的故障情境，光讀沒有用。下面的腳本會建立兩台啟用 systemd 的 privileged 容器（`lab-ubuntu`：Ubuntu 24.04、`lab-fedora`：Fedora 44），它們有完整的 systemd、apt / dnf、防火牆、journald，足以練習除了「開機、真實 SELinux enforcing、實體硬體」以外的所有章節。
+
+**需要**：Docker（Docker Desktop、docker-ce）或 Podman（`CONTAINER_CLI=podman`）；Linux、WSL2、macOS 皆可；約 1.5 GB 磁碟。
+
+```bash
+git clone git@github.com:ChunPingWang/linux-tutorial.git && cd linux-tutorial
+bash scripts/lab/setup-lab.sh up          # 建映像、啟動兩台、部署 04 章的範例服務 myapp（第一次約 3 分鐘，之後 20 秒）
+bash scripts/lab/setup-lab.sh status      # lab-ubuntu running systemd=running myapp=active ...
+bash scripts/lab/setup-lab.sh shell ubuntu   # 進入（或 fedora）；手冊掛在 /manual，腳本已複製到 /root
+```
+
+進入容器後可以直接做的事：
+
+```bash
+# 照著章節敲指令（02～09 章的絕大多數指令都可直接執行）
+apt update && apt install -y nginx          # 🟠   /   dnf install -y nginx   # 🔵
+# 17 章故障情境：注入 → 自己排查 → 對照 → 還原
+bash /root/scen/01-disk-full.sh inject
+bash /root/scen/01-disk-full.sh status
+bash /root/scen/01-disk-full.sh solve
+# 06 / 15 章儲存實驗（loop 裝置上的 LVM、RAID、LUKS、Btrfs；主機需先載入模組，setup-lab.sh up 會嘗試）
+bash /root/lab-storage-test.sh
+bash /root/lab-lvm-advanced-test.sh
+# 11 章備份實驗
+bash /root/lab-backup-test.sh
+```
+
+```bash
+bash scripts/lab/setup-lab.sh test        # 一次跑完 systemd / storage / backup 三支測試（約 5～10 分鐘）
+bash scripts/lab/setup-lab.sh down        # 移除容器（映像保留，下次 up 很快）
+```
+
+**容器做不到、需要真正 VM 的章節**：01（安裝程式、分割區）、14（UEFI / Secure Boot / TPM）、16 的 enforcing 行為、12 的開機救援。這些請用 VirtualBox / virt-manager / Multipass 開一台 VM 練習（01 章 §6 有一行建 VM 的指令）；容器的限制與處理方式列在 [`scripts/lab/README.md`](scripts/lab/README.md)。
+
 ## 寫作慣例：先定義名詞與關係，再說「為什麼」，最後「怎麼做」
 
 每個重點都依 **名詞與關係 → 為什麼（Why）→ 怎麼做（How）→ 注意（陷阱）** 的順序撰寫：小節若出現多個專有名詞，先用一句話定義每個名詞，並以關係圖或三欄表說明它們彼此的關係（誰依賴誰、先後、取代或互補），避免「為什麼」段落丟出讀者不認識的名詞；接著先講這個設定解決什麼問題、不做會怎樣、為什麼選這個做法，再給指令。目的是讓讀者理解決策脈絡，而不是只照抄指令。對照表前也會先解釋兩個發行版為什麼會不同（設計哲學、上游差異）。編修規範與範例見 [STYLE.md](STYLE.md)。
@@ -102,4 +138,4 @@ sudo dnf install nginx
 
 ## 實驗環境建議
 
-建議在虛擬機（VirtualBox、virt-manager/KVM、VMware、Hyper-V、WSL2）上練習，並在每個重要步驟前建立快照。所有 ⚠️ 標記的操作請勿直接在正式主機執行。
+容器實驗環境見上方「5 分鐘建立實驗環境」。需要完整開機流程的章節請用虛擬機（VirtualBox、virt-manager/KVM、VMware、Hyper-V），並在每個重要步驟前建立快照。所有 ⚠️ 標記的操作請勿直接在正式主機執行。
