@@ -67,6 +67,8 @@ package_update: true
 packages: [vim, htop, curl, git, tmux]
 runcmd:
   - [sh, -c, "mkdir -p /root/manual"]
+  # 讓 GRUB 選單在序列主控台停 5 秒，方便練習 12 / 14 章的開機救援（雲端映像預設 GRUB_TIMEOUT=0 且 🟠 只輸出到 VGA）
+  - [sh, -c, "if [ -d /etc/default/grub.d ]; then printf 'GRUB_TIMEOUT=5\\nGRUB_TIMEOUT_STYLE=menu\\nGRUB_RECORDFAIL_TIMEOUT=5\\nGRUB_TERMINAL=\"serial console\"\\nGRUB_SERIAL_COMMAND=\"serial --speed=115200\"\\n' > /etc/default/grub.d/99-lab.cfg && update-grub; else sed -i 's/^GRUB_TIMEOUT=.*/GRUB_TIMEOUT=5/' /etc/default/grub && grub2-editenv - unset menu_auto_hide && grub2-mkconfig -o /boot/grub2/grub.cfg; fi"]
 CI
   printf 'instance-id: lab-vm-%s-%s\nlocal-hostname: lab-vm-%s\n' "$n" "$(date +%s)" "$n" > "$WORK/$n-meta-data"
   cloud-localds "$WORK/$n-seed.iso" "$WORK/$n-user-data" "$WORK/$n-meta-data"

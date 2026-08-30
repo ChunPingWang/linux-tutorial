@@ -92,6 +92,46 @@ sudo apt install nginx
 sudo dnf install nginx
 ```
 
+## Linux 開機執行順序總覽
+
+**為什麼先看這張圖**：手冊裡的安裝（01）、核心與 GRUB（04）、UEFI（14）、開機救援（12）、SELinux 重標籤（16）都掛在同一條開機鏈的不同環節上；知道「現在卡在哪一段」就知道該翻哪一章、用哪個工具。
+
+```mermaid
+flowchart TD
+    FW["① 韌體 UEFI（或 BIOS）<br/>自檢、讀 NVRAM 開機項（Boot####）<br/>Secure Boot 驗證下一階段簽章"] --> ESP
+    ESP["② ESP 分割區內的 shim → 開機載入器<br/>🟠 /boot/efi/EFI/ubuntu/shimx64.efi → grubx64.efi<br/>🔵 /boot/efi/EFI/fedora/shimx64.efi → grubx64.efi"] --> GRUB
+    GRUB["③ GRUB 選單<br/>讀 grub.cfg（🟠 /boot/grub/、🔵 /boot/grub2/ + BLS entries）<br/>選核心、可按 e 改核心參數"] --> KERN
+    KERN["④ 核心 vmlinuz + initramfs<br/>核心初始化硬體，initramfs 內的早期使用者空間<br/>載入模組、解 LUKS、啟用 LVM、找到根檔案系統"] --> SWITCH
+    SWITCH["⑤ switch_root 到真正的 /<br/>（🔵 rd.break 在這之前中斷）"] --> INIT
+    INIT["⑥ systemd（PID 1）<br/>依 default.target 啟動 unit"] --> T1
+    T1["sysinit.target：掛 fstab、udev、swap、journald"] --> T2
+    T2["basic.target：socket、timer、path"] --> T3
+    T3["multi-user.target：網路、sshd、服務…<br/>（graphical.target 再加 GDM）"] --> LOGIN
+    LOGIN["⑦ 登入：getty / sshd / GDM → PAM → shell"]
+
+    FW -. 韌體設定、Secure Boot、TPM .-> C14["14 章 UEFI 進階"]
+    ESP -. 找不到 ESP / shim .-> C12a["12 章 §3 開機故障"]
+    GRUB -. grub rescue>、改參數 .-> C04["04 章 §5 GRUB 與核心"]
+    KERN -. 缺模組、initramfs 重建 .-> C04
+    SWITCH -. rescue / emergency / rd.break .-> C12b["12 章 §3.1 救援環境"]
+    INIT -. unit 失敗、卡 wait-online .-> C04b["04 章 §1 systemd"]
+    T1 -. fstab 錯誤 → emergency .-> C06["06 章 §4.2 fstab"]
+```
+
+<details><summary>純文字版</summary>
+
+```
+① 韌體 UEFI/BIOS ──▶ ② ESP: shim → GRUB ──▶ ③ GRUB 選單（grub.cfg / BLS）──▶ ④ vmlinuz + initramfs（模組、LUKS、LVM、找根）
+   │ Secure Boot / TPM（14 章）        │ 找不到 → 12 章 §3            │ e 改參數（04 §5）            │ 缺模組 → dracut / update-initramfs（04 §5.3）
+   ▼
+⑤ switch_root（🔵 rd.break 在此之前）──▶ ⑥ systemd PID 1 → sysinit（fstab、udev）→ basic → multi-user（sshd、服務）→ graphical ──▶ ⑦ getty / sshd / GDM → PAM → shell
+                                              │ fstab 錯 → emergency（06 §4.2）   │ unit 失敗（04 §1）
+```
+
+</details>
+
+各階段的排查與練習：[04 章 §5.6 開機流程與 target](04-系統管理.md)、[12 章 §3 開機故障（含在實驗 VM 上練 GRUB / rescue / rd.break 的步驟）](12-監控與故障排除.md)、[14 章 §1 UEFI 開機鏈總覽](14-UEFI進階.md)。
+
 ## 章節目錄
 
 | 章節 | 內容 |
