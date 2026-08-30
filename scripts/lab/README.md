@@ -5,7 +5,7 @@
 | 腳本 | 環境 | 適用 |
 |---|---|---|
 | `setup-lab.sh up\|shell\|status\|test\|down` | 兩台 systemd privileged 容器 | 大多數章節；本手冊的驗證環境 |
-| `setup-vm.sh up\|ssh\|console\|snapshot\|status\|down` | KVM + 官方雲端映像 + cloud-init 的兩台 UEFI VM | 01 安裝、12 開機救援、14 UEFI、16 SELinux enforcing；未於 WSL2 驗證主機實際啟動，已驗證語法、cloud-config schema 與映像 URL |
+| `setup-vm.sh up\|ssh\|console\|snapshot\|status\|down` | KVM + 官方雲端映像 + cloud-init 的兩台 UEFI VM | 01 安裝、12 開機救援、14 UEFI、16 SELinux enforcing；已於 Fedora 44 WSL2（巢狀 KVM）實測建立兩台 UEFI VM，使用者 `sysop` |
 
 容器的手動建法如下。
 

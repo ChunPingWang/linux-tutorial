@@ -30,6 +30,9 @@
 
 ## 驗證過程中修正的錯誤（原稿 → 實測）
 
+- cloud-init 範例使用者原為 `admin`：Ubuntu 雲端映像已有 `admin` 群組（gid 110；一般安裝亦有 gid 4），`useradd admin` 失敗「group admin exists」，使用者未建立、無法 SSH——全書範例改為 `sysop`。cloud-init 對 `groups:` 中不存在的群組會自動 `groupadd`（Ubuntu 建了 `wheel`、Fedora 建了 `sudo`），原稿「會被忽略」有誤。
+- 🔵 Fedora 的 libvirt 為模組化 daemon，裝完 `@virtualization` 後需 `systemctl enable --now virtqemud.socket virtnetworkd.socket …`；VM 映像放家目錄會因 qemu 使用者無法遍歷而 `Cannot access storage file`，需放 `/var/lib/libvirt/images/`。
+
 - SELinux disabled 環境下 `audit2allow` / `audit2why` 必須加 `-p /etc/selinux/targeted/policy/policy.35`；`sepolicy generate -p DIR` 的目錄要先存在；`sepolicy booleans` 需 SELinux 啟用。
 
 - Ubuntu 24.04 `mokutil` 0.6.0 無 `--set-sbat-policy` / `--list-sbat-revocations`（Fedora 0.7.2 有）。

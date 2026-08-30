@@ -26,14 +26,14 @@ autoinstall:
       # password: "changeme"      # 加上這行即啟用 LUKS 全碟加密
   identity:
     hostname: ubuntu-auto
-    username: admin
+    username: sysop
     # 用 `openssl passwd -6` 或 `mkpasswd -m sha-512` 產生
     password: "$6$rounds=4096$saltsalt$4gZ3hVdJvJZk9pRQx5Ig7KmzuhBRD0xKmFGm5N1Q3wfZ1qKZ8Ri2CQ7O.pTNvB4E9JuYfN3hVbC5pQeXvpRIb/"
   ssh:
     install-server: true
     allow-pw: false
     authorized-keys:
-      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyReplaceMe admin@laptop"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyReplaceMe sysop@laptop"
   packages:
     - vim
     - htop
@@ -42,6 +42,6 @@ autoinstall:
   updates: security
   late-commands:
     - curtin in-target --target=/target -- systemctl enable qemu-guest-agent
-    - echo 'admin ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-admin
-    - chmod 440 /target/etc/sudoers.d/90-admin
+    - echo 'sysop ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-sysop
+    - chmod 440 /target/etc/sudoers.d/90-sysop
   shutdown: reboot

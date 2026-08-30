@@ -44,10 +44,12 @@ bash scripts/lab/setup-lab.sh down          # 移除容器（映像保留）
 **B1. KVM / libvirt + 官方雲端映像（`setup-vm.sh`，Linux 主機）**：用 01 章 §6 的雲端映像與 cloud-init 自動建好兩台可 SSH 的 VM，UEFI 開機、有序列主控台，可練習 GRUB / 救援模式 / Secure Boot / SELinux enforcing。
 
 ```bash
-# 主機準備（一次）
-sudo apt install -y qemu-system-x86 libvirt-daemon-system virtinst cloud-image-utils && sudo usermod -aG libvirt $USER   # 🟠
-sudo dnf install -y @virtualization virt-install cloud-utils && sudo usermod -aG libvirt $USER                          # 🔵
-[ -f ~/.ssh/id_ed25519.pub ] || ssh-keygen -t ed25519      # VM 用這把金鑰登入（使用者 admin）
+# 主機準備（只做一次）。下面兩行擇一：看你的「主機」是哪個發行版——
+#   🟠 主機是 Ubuntu / Debian 系 → 只執行第 1 行；🔵 主機是 Fedora / RHEL 系 → 只執行第 2 行
+sudo apt install -y qemu-system-x86 libvirt-daemon-system virtinst cloud-image-utils ovmf      # 🟠 Ubuntu 主機
+sudo dnf install -y @virtualization virt-install cloud-utils edk2-ovmf                          # 🔵 Fedora 主機
+[ -f ~/.ssh/id_ed25519.pub ] || ssh-keygen -t ed25519      # 兩者都要：VM 用這把金鑰登入（使用者 sysop）
+# 之後的步驟兩種主機相同。setup-vm.sh up 會自動：啟動 libvirt daemon、把你加入 libvirt 群組、啟動 default 網路
 # 建立與使用
 bash scripts/lab/setup-vm.sh up                 # 下載 Ubuntu 24.04 與 Fedora 44 雲端映像、建 seed ISO、virt-install（UEFI）
 bash scripts/lab/setup-vm.sh ssh ubuntu         # 或 fedora
@@ -62,9 +64,9 @@ VM 內把手冊的腳本帶進去：`scp -r scripts admin@<ip>:` 後同樣執行
 
 **B3. 沒有 Linux 主機時**：
 - Windows / macOS：**Multipass**（Ubuntu 專用，`multipass launch 24.04 --name lab-ubuntu --cloud-init scripts/examples/unattended/…` 或直接 `multipass shell`）；Fedora 用 VirtualBox / VMware 開 ISO。
-- WSL2：只能跑方式 A（容器）；01 章 §7 的 WSL 發行版不是完整環境（無 SELinux、無真實開機）。
+- **WSL2 也能跑方式 B**：Windows 11 的 WSL2 預設開啟巢狀虛擬化（`/dev/kvm` 存在），在 WSL 發行版內裝 libvirt 後 `setup-vm.sh` 可直接用（本手冊即在 Fedora 44 WSL2 上實測建立兩台 UEFI VM）；限制是 VM 無法橋接到實體 LAN、記憶體受 `.wslconfig` 上限。01 章 §7 的 WSL 發行版本身不是完整環境（無 SELinux、無真實開機），要練那些章節請開 VM。
 
-**注意**：方式 B 的腳本依賴主機有 KVM 與 libvirt；本手冊的驗證主機是 WSL2（無 libvirt），因此 `setup-vm.sh` 只驗證了語法、cloud-config schema 與映像 URL，未在本機實際啟動 VM——第一次執行請留意 `virt-install` 的錯誤訊息（常見：使用者不在 `libvirt` 群組、`default` 網路未啟動 `virsh net-start default`、UEFI 韌體套件 `ovmf` / `edk2-ovmf` 未安裝）。
+**注意**：`setup-vm.sh` 已在 Fedora 44 WSL2 主機實測（兩台 UEFI VM、Fedora VM 為 SELinux enforcing、SSH 金鑰登入）。腳本會自動處理實測時踩到的三個問題：🔵 libvirt 模組化 daemon 裝完沒啟動（`virtqemud.socket` 等）、映像放家目錄時 qemu 使用者無法存取（改放 `/var/lib/libvirt/images/lab-vm`）、Ubuntu 雲端映像已有 `admin` 群組導致 `useradd admin` 失敗（使用者改叫 `sysop`）。仍需手動處理的：`default` 網路不存在時 `virsh net-define /usr/share/libvirt/networks/default.xml`。
 
 ## 寫作慣例：先定義名詞與關係，再說「為什麼」，最後「怎麼做」
 
