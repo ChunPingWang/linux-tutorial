@@ -53,7 +53,8 @@ sudo dnf install -y @virtualization virt-install cloud-utils edk2-ovmf          
 # 建立與使用
 bash scripts/lab/setup-vm.sh up                 # 下載 Ubuntu 24.04 與 Fedora 44 雲端映像、建 seed ISO、virt-install（UEFI）
 bash scripts/lab/setup-vm.sh ssh ubuntu         # 或 fedora
-bash scripts/lab/setup-vm.sh console fedora     # 序列主控台：看 GRUB 選單、進 rescue.target / rd.break（Ctrl+] 離開）
+bash scripts/lab/setup-vm.sh console fedora     # 序列主控台：按 Enter 出現 login，帳號 sysop / 密碼 lab（僅主控台；SSH 只收金鑰）；Ctrl+] 離開
+#   要練 GRUB 選單 / rescue.target / rd.break：先開著 console，再另開終端 virsh reboot lab-vm-fedora，開機時在 console 按方向鍵停住選單
 bash scripts/lab/setup-vm.sh snapshot ubuntu before-upgrade   # 危險操作前先快照；還原：virsh snapshot-revert lab-vm-ubuntu before-upgrade
 bash scripts/lab/setup-vm.sh status ; bash scripts/lab/setup-vm.sh down
 ```
@@ -66,7 +67,7 @@ VM 內把手冊的腳本帶進去：`scp -r scripts admin@<ip>:` 後同樣執行
 - Windows / macOS：**Multipass**（Ubuntu 專用，`multipass launch 24.04 --name lab-ubuntu --cloud-init scripts/examples/unattended/…` 或直接 `multipass shell`）；Fedora 用 VirtualBox / VMware 開 ISO。
 - **WSL2 也能跑方式 B**：Windows 11 的 WSL2 預設開啟巢狀虛擬化（`/dev/kvm` 存在），在 WSL 發行版內裝 libvirt 後 `setup-vm.sh` 可直接用（本手冊即在 Fedora 44 WSL2 上實測建立兩台 UEFI VM）；限制是 VM 無法橋接到實體 LAN、記憶體受 `.wslconfig` 上限。01 章 §7 的 WSL 發行版本身不是完整環境（無 SELinux、無真實開機），要練那些章節請開 VM。
 
-**注意**：`setup-vm.sh` 已在 Fedora 44 WSL2 主機實測（兩台 UEFI VM、Fedora VM 為 SELinux enforcing、SSH 金鑰登入）。腳本會自動處理實測時踩到的三個問題：🔵 libvirt 模組化 daemon 裝完沒啟動（`virtqemud.socket` 等）、映像放家目錄時 qemu 使用者無法存取（改放 `/var/lib/libvirt/images/lab-vm`）、Ubuntu 雲端映像已有 `admin` 群組導致 `useradd admin` 失敗（使用者改叫 `sysop`）。仍需手動處理的：`default` 網路不存在時 `virsh net-define /usr/share/libvirt/networks/default.xml`。
+**注意**：`setup-vm.sh` 已在 Fedora 44 WSL2 主機實測（兩台 UEFI VM、Fedora VM 為 SELinux enforcing、SSH 金鑰登入）。腳本會自動處理實測時踩到的三個問題：🔵 libvirt 模組化 daemon 裝完沒啟動（`virtqemud.socket` 等）、映像放家目錄時 qemu 使用者無法存取（改放 `/var/lib/libvirt/images/lab-vm`）、Ubuntu 雲端映像已有 `admin` 群組導致 `useradd admin` 失敗（使用者改叫 `sysop`）、剛加入 `libvirt` 群組尚未重新登入時自動以 `sg libvirt` 重跑、DHCP 租約表清空時改用 ARP 查 VM 的 IP。仍需手動處理的：`default` 網路不存在時 `virsh net-define /usr/share/libvirt/networks/default.xml`。
 
 ## 寫作慣例：先定義名詞與關係，再說「為什麼」，最後「怎麼做」
 

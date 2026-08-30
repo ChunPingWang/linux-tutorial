@@ -5,7 +5,8 @@
 #   bash scripts/lab/setup-vm.sh up [ubuntu|fedora|all]   # 下載映像（首次）、建 seed ISO、virt-install（UEFI 開機）
 #   bash scripts/lab/setup-vm.sh ssh ubuntu|fedora        # SSH 進入（使用者 sysop，金鑰 ~/.ssh/id_ed25519）
 #   （使用者不叫 admin：Ubuntu 雲端映像已有 admin 群組，useradd admin 會失敗——實測）
-#   bash scripts/lab/setup-vm.sh console ubuntu|fedora    # 序列主控台（練習開機救援 / GRUB 時用；Ctrl+] 離開）
+#   bash scripts/lab/setup-vm.sh console ubuntu|fedora    # 序列主控台（練習開機救援 / GRUB 時用）：按 Enter 出現 login，帳號 sysop 密碼 lab；Ctrl+] 離開
+#                                                        # 要看 GRUB 選單：先 console 再 virsh reboot，或開機時在主控台按方向鍵
 #   bash scripts/lab/setup-vm.sh snapshot ubuntu|fedora <名稱>   # 建快照（做危險操作前）
 #   bash scripts/lab/setup-vm.sh status | down [ubuntu|fedora]
 # 需求：Linux 主機（含 /dev/kvm）；🟠 apt install qemu-system-x86 libvirt-daemon-system virtinst cloud-image-utils
@@ -46,6 +47,8 @@ ensure_libvirt() {
 
 mk_seed() {   # $1 = name
   local n=$1
+  # 序列主控台登入用的密碼（SSH 仍只允許金鑰）；預設 lab，可用 LAB_VM_PASSWORD 覆寫
+  local PWHASH; PWHASH=$(openssl passwd -6 "${LAB_VM_PASSWORD:-lab}")
   cat > "$WORK/$n-user-data" <<CI
 #cloud-config
 hostname: lab-vm-$n
@@ -57,6 +60,8 @@ users:
     shell: /bin/bash
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys: ["$PUB"]
+    lock_passwd: false
+    hashed_passwd: "$PWHASH"
 ssh_pwauth: false
 package_update: true
 packages: [vim, htop, curl, git, tmux]
@@ -82,16 +87,31 @@ up_one() {
   echo "   建立完成；cloud-init 約 1～2 分鐘後可 SSH：bash $0 ssh $n"
 }
 
-ip_of() { virsh --connect qemu:///system domifaddr "lab-vm-$1" 2>/dev/null | awk '/ipv4/{print $4}' | cut -d/ -f1 | head -1; }
+# 剛被加入 libvirt 群組但尚未重新登入時，目前 shell 連不上 qemu:///system；自動用 sg libvirt 重跑
+maybe_sg() {
+  if getent group libvirt | grep -qw "$USER" && ! id -nG | grep -qw libvirt; then
+    exec sg libvirt -c "bash '$0' $*"
+  fi
+}
+check_conn() { virsh --connect qemu:///system uri >/dev/null 2>&1 || { echo "連不上 libvirt（qemu:///system）：daemon 未啟動或 $USER 不在 libvirt 群組（重新登入，或先跑 bash $0 up）" >&2; exit 1; }; }
+# 先查 DHCP 租約，查不到（dnsmasq 重啟後租約表會清空）再用 ARP 表
+ip_of() {
+  local ip
+  ip=$(virsh --connect qemu:///system domifaddr "lab-vm-$1" --source lease 2>/dev/null | awk '/ipv4/{print $4}' | cut -d/ -f1 | head -1)
+  [[ -n $ip ]] || ip=$(virsh --connect qemu:///system domifaddr "lab-vm-$1" --source arp 2>/dev/null | awk '/ipv4/{print $4}' | cut -d/ -f1 | head -1)
+  echo "$ip"
+}
 
 case "${1:-}" in
   up) need virt-install; need cloud-localds; need qemu-img; need virsh; ensure_libvirt "$@"
       for n in $([[ ${2:-all} == all ]] && echo ubuntu fedora || echo "$2"); do up_one "$n"; done ;;
-  ssh) ip=$(ip_of "$2"); [[ -n $ip ]] || { echo "尚未取得 IP（cloud-init 未完成？）"; exit 1; }
+  ssh) maybe_sg "$@"; check_conn; st=$(virsh --connect qemu:///system domstate "lab-vm-$2" 2>/dev/null || echo 不存在)
+       [[ $st == running ]] || { echo "lab-vm-$2 狀態：$st（先 bash $0 up $2）"; exit 1; }
+       ip=$(ip_of "$2"); [[ -n $ip ]] || { echo "VM 在跑但尚未取得 IP：cloud-init 第一次開機約需 1～2 分鐘，稍後再試；或 bash $0 console $2 看開機訊息"; exit 1; }
        exec ssh -o StrictHostKeyChecking=accept-new sysop@"$ip" ;;
-  console) exec virsh --connect qemu:///system console "lab-vm-$2" ;;
-  snapshot) virsh --connect qemu:///system snapshot-create-as "lab-vm-$2" "${3:-snap-$(date +%F-%H%M)}" --atomic && echo "快照完成；還原：virsh snapshot-revert lab-vm-$2 <名稱>" ;;
-  status) for n in ubuntu fedora; do printf "lab-vm-%-7s %s  ip=%s\n" "$n" "$(virsh --connect qemu:///system domstate lab-vm-$n 2>/dev/null || echo 不存在)" "$(ip_of $n)"; done ;;
-  down) for n in $([[ -n ${2:-} ]] && echo "$2" || echo ubuntu fedora); do virsh --connect qemu:///system destroy lab-vm-$n >/dev/null 2>&1 || true; virsh --connect qemu:///system undefine lab-vm-$n --nvram --remove-all-storage >/dev/null 2>&1 && echo "removed lab-vm-$n" || true; done ;;
+  console) maybe_sg "$@"; check_conn; exec virsh --connect qemu:///system console "lab-vm-$2" ;;
+  snapshot) maybe_sg "$@"; check_conn; virsh --connect qemu:///system snapshot-create-as "lab-vm-$2" "${3:-snap-$(date +%F-%H%M)}" --atomic && echo "快照完成；還原：virsh snapshot-revert lab-vm-$2 <名稱>" ;;
+  status) maybe_sg "$@"; check_conn; for n in ubuntu fedora; do printf "lab-vm-%-7s %s  ip=%s\n" "$n" "$(virsh --connect qemu:///system domstate lab-vm-$n 2>/dev/null || echo 不存在)" "$(ip_of $n)"; done ;;
+  down) maybe_sg "$@"; check_conn; for n in $([[ -n ${2:-} ]] && echo "$2" || echo ubuntu fedora); do virsh --connect qemu:///system destroy lab-vm-$n >/dev/null 2>&1 || true; virsh --connect qemu:///system undefine lab-vm-$n --nvram --remove-all-storage >/dev/null 2>&1 && echo "removed lab-vm-$n" || true; done ;;
   *) sed -n '2,13p' "$0"; exit 1 ;;
 esac
